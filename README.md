@@ -1,0 +1,2 @@
+# GCPVertex ClaudeChat Pro
+ Vertex: This references Google Cloud Vertex API, indicating the platform on which the AI model is hosted and utilized.  Claude: This directly references the AI model being used, making it clear that the app is powered by Claude.  Chat: This indicates that the app is focused on conversational interactions, emphasizing its chatbot functionality.  This name is concise, memorable, and clearly communicates the app's purpose, the technology it uses (Claude AI), and the platform it runs on (Google Cloud Vertex API).
