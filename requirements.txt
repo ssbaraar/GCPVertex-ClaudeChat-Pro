@@ -1,0 +1,5 @@
+streamlit
+anthropic
+PyPDF2
+python-docx
+pyperclip
