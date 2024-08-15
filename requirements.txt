@@ -3,3 +3,4 @@ anthropic
 PyPDF2
 python-docx
 pyperclip
+google-cloud-aiplatform anthropic[vertex]
