@@ -6,16 +6,31 @@ from docx import Document
 import pyperclip
 import json
 import time
+import sqlite3
+from datetime import datetime
 
-
-# Set page configuration
 st.set_page_config(page_title="Claude AI Chatbot", page_icon="🤖", layout="wide")
 
-# Function to stop generation
-def stop_generation():
-    st.session_state.generating = False
+def init_db():
+    conn = sqlite3.connect('chatbot.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS conversations
+                 (id INTEGER PRIMARY KEY, conversation TEXT, timestamp TEXT, context TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS chat_state
+                 (id INTEGER PRIMARY KEY, conversation TEXT, document_content TEXT, context TEXT)''')
+    conn.commit()
+    return conn
 
-# Secure handling of credentials
+conn = init_db()
+
+def safe_db_operation(operation):
+    try:
+        operation()
+        conn.commit()
+    except sqlite3.Error as e:
+        st.error(f"Database error: {e}")
+        conn.rollback()
+
 def load_credentials():
     try:
         with open('credentials.json', 'r') as f:
@@ -33,7 +48,6 @@ if credentials:
 else:
     st.error("Failed to load credentials. Chat functionality will be limited.")
 
-# Initialize the client with error handling
 @st.cache_resource
 def init_client():
     try:
@@ -44,23 +58,43 @@ def init_client():
 
 client = init_client()
 
-# Initialize session state variables
+def save_chat_state():
+    safe_db_operation(lambda: conn.cursor().execute(
+        "DELETE FROM chat_state"
+    ))
+    safe_db_operation(lambda: conn.cursor().execute(
+        "INSERT INTO chat_state (conversation, document_content, context) VALUES (?, ?, ?)",
+        (json.dumps(st.session_state.conversation),
+         st.session_state.document_content,
+         st.session_state.context)
+    ))
+
+def load_chat_state():
+    c = conn.cursor()
+    c.execute("SELECT * FROM chat_state")
+    result = c.fetchone()
+    if result:
+        st.session_state.conversation = json.loads(result[1])
+        st.session_state.document_content = result[2]
+        st.session_state.context = result[3]
+    else:
+        st.session_state.conversation = []
+        st.session_state.document_content = ""
+        st.session_state.context = "You are a helpful assistant."
+
+def save_conversation():
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    safe_db_operation(lambda: conn.cursor().execute(
+        "INSERT INTO conversations (conversation, timestamp, context) VALUES (?, ?, ?)",
+        (json.dumps(st.session_state.conversation), timestamp, st.session_state.context)
+    ))
+
 if "conversation" not in st.session_state:
-    st.session_state.conversation = []
-if "document_content" not in st.session_state:
-    st.session_state.document_content = ""
-if "context" not in st.session_state:
-    st.session_state.context = "You are a helpful assistant."
-if "tags" not in st.session_state:
-    st.session_state.tags = []
-if "conversation_history" not in st.session_state:
-    st.session_state.conversation_history = []
+    load_chat_state()
+
 if "generating" not in st.session_state:
     st.session_state.generating = False
-if "run_chat" not in st.session_state:
-    st.session_state.run_chat = False
 
-# Improved chat function with error handling and rate limiting
 def chat(user_input):
     if not user_input or not client:
         return
@@ -98,6 +132,7 @@ def chat(user_input):
                 response_container.markdown(full_response)
                 display_message_stats(full_response)
                 st.session_state.conversation.append({"role": "assistant", "content": full_response})
+                save_chat_state()
 
         except Exception as e:
             response_container.error(f"An error occurred: {e}")
@@ -116,7 +151,6 @@ def display_message_stats(text):
     token_count = len(text.encode('utf-8'))
     st.caption(f"Word count: {word_count} | Token count: {token_count}")
 
-# Improved document parsing with additional file type support
 def parse_document(file):
     try:
         if file.type == "application/pdf":
@@ -138,98 +172,104 @@ def parse_docx(file):
     doc = Document(file)
     return "\n".join(para.text for para in doc.paragraphs)
 
-# Sidebar enhancements
 st.sidebar.title("🛠️ Chatbot Configuration")
 
-# Conversation Management
 st.sidebar.subheader("💬 Conversation Management")
 col1, col2 = st.sidebar.columns(2)
-if col1.button("🗑️ Clear Chat"):
+if col1.button("🗑️Clear Chat", key="clear_chat"):
     st.session_state.conversation = []
+    st.session_state.document_content = ""
+    save_chat_state()
     st.sidebar.success("Chat cleared!")
-if col2.button("🆕 New Chat"):
-    if st.session_state.conversation:
-        if len(st.session_state.conversation_history) >= 3:
-            st.session_state.conversation_history.pop(0)  # Remove oldest conversation
-        st.session_state.conversation_history.append(st.session_state.conversation)
-    st.session_state.conversation = []
-    st.session_state.tags = []
-    st.sidebar.success("New chat started!")
+    st.rerun()
 
-# Display conversation history
+if col2.button("🆕New Chat", key="new_chat"):
+    if st.session_state.conversation:
+        save_conversation()
+    st.session_state.conversation = []
+    st.session_state.document_content = ""
+    save_chat_state()
+    st.sidebar.success("New chat started!")
+    st.rerun()
+
 st.sidebar.subheader("📜 Conversation History")
-for idx, hist in enumerate(st.session_state.conversation_history):
-    col1, col2 = st.sidebar.columns([0.8, 0.2])
-    if col1.button(f"Conversation {idx + 1}", key=f"load_conv_{idx}"):
-        st.session_state.conversation = hist
-    if col2.button("x", key=f"delete_conv_{idx}"):
-        st.session_state.conversation_history.pop(idx)
+c = conn.cursor()
+c.execute("SELECT id, conversation, timestamp, context FROM conversations ORDER BY timestamp DESC")
+conversation_history = c.fetchall()
+
+for idx, (conv_id, conv, timestamp, context) in enumerate(conversation_history):
+    col1, col2, col3 = st.sidebar.columns([0.7, 0.35, 0.2])
+    col1.write(f"Conversation {idx + 1} - {timestamp}")
+    if col2.button("Load", key=f"load_conv_{idx}", use_container_width=True):
+        st.session_state.conversation = json.loads(conv)
+        st.session_state.context = context
+        save_chat_state()
+        st.rerun()
+    if col3.button("🗑️", key=f"delete_conv_{idx}", use_container_width=True):
+        safe_db_operation(lambda: c.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)))
         st.sidebar.success(f"Conversation {idx + 1} deleted!")
         st.rerun()
 
-# Option to delete all saved conversations
-if st.session_state.conversation_history:
+    # Custom CSS to reduce font size of the "Load" button
+    st.markdown("""
+        <style>
+        .stButton>button {
+            font-size: 0.8em;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+if conversation_history:
     if st.sidebar.button("Delete All Saved Conversations"):
-        st.session_state.conversation_history = []
+        safe_db_operation(lambda: c.execute("DELETE FROM conversations"))
         st.sidebar.success("All saved conversations deleted!")
         st.rerun()
 
-# Context Input
 st.sidebar.subheader("🎭 Define Chatbot Role")
-st.session_state.context = st.sidebar.text_area("Enter the role and purpose:", st.session_state.context, height=100)
+new_context = st.sidebar.text_area("Enter the role and purpose:", st.session_state.context, height=100)
+if new_context != st.session_state.context:
+    st.session_state.context = new_context
+    save_chat_state()
+    st.sidebar.success("Context updated successfully!")
 
-# Document Upload
 st.sidebar.subheader("📄 Upload Document")
 uploaded_file = st.sidebar.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
 if uploaded_file:
     st.session_state.document_content = parse_document(uploaded_file)
+    save_chat_state()
     st.sidebar.success("✅ Document processed successfully!")
 
-# Display document content and delete option
 if st.session_state.document_content:
     st.sidebar.text_area("Document Content:", st.session_state.document_content, height=150)
     if st.sidebar.button("❌ Delete Document Content"):
         st.session_state.document_content = ""
+        save_chat_state()
         st.sidebar.success("Document content deleted!")
+        st.rerun()
 
-def display_input_and_stop_button():
-    input_container = st.empty()
-    stop_button_container = st.empty()
-
-    if not st.session_state.generating:
-        user_input = input_container.chat_input("Ask me anything or share your thoughts...", key="user_input")
-        if user_input:
-            st.session_state.run_chat = True
-            return user_input
-    else:
-        input_container.text_input("AI is generating a response...", disabled=True, key="disabled_input")
-        if stop_button_container.button("🛑 Stop Generation", key="stop_button"):
-            stop_generation()
-    return None
-
-# Main chat interface
 st.title("🤖 Claude AI Chatbot")
 st.markdown("Welcome to your AI assistant! How can I help you today?")
 
-# Display conversation history
 for idx, message in enumerate(st.session_state.conversation):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-        col1, col2 = st.columns([0.85, 0.15])
         display_message_stats(message["content"])
-        if col2.button("📋 Copy", key=f"copy_{message['role']}_{idx}"):
+        col1, col2 = st.columns([0.13, 0.9])
+        if col1.button("📋 Copy", key=f"copy_{message['role']}_{idx}", help="Copy this message"):
             pyperclip.copy(message["content"])
             st.success("Copied to clipboard!", icon="✅")
 
-# Display input and stop button
-user_input = display_input_and_stop_button()
+        # Only show the "Copy entire conversation" button next to the last message
+        if idx == len(st.session_state.conversation) - 1:
+            if col2.button("📋 Copy entire conversation", key="copy_entire_conv", help="Copy the entire conversation to clipboard"):
+                conversation_text = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
+                pyperclip.copy(conversation_text)
+                st.success("Entire conversation copied to clipboard!", icon="✅")
+
+user_input = st.chat_input("Ask me anything or share your thoughts...", key="user_input")
 
 if user_input:
     chat(user_input)
 
-# Copy entire conversation
-if st.session_state.conversation:
-    if st.button("📋 Copy entire conversation"):
-        conversation_text = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
-        pyperclip.copy(conversation_text)
-        st.success("Entire conversation copied to clipboard!", icon="✅")
+
+conn.close()
