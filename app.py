@@ -319,49 +319,49 @@ def logout_user():
 
     st.session_state.logged_in = False
 
-#basic task breakdown feature.
-def handle_complex_task(task):
-    progress_placeholder = st.empty()
-    progress_placeholder.info("Generating step-by-step guide...")
+# #basic task breakdown feature.
+# def handle_complex_task(task):
+#     progress_placeholder = st.empty()
+#     progress_placeholder.info("Generating step-by-step guide...")
 
-    prompt = f"""
-    The user has requested help with the following task:
-    {task}
+#     prompt = f"""
+#     The user has requested help with the following task:
+#     {task}
 
-    Please break this task down into a series of steps. For each step, provide:
-    1. A brief description of the step
-    2. Any additional details or explanations needed
+#     Please break this task down into a series of steps. For each step, provide:
+#     1. A brief description of the step
+#     2. Any additional details or explanations needed
 
-    Format your response as a numbered list.
-    """
+#     Format your response as a numbered list.
+#     """
 
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-            system="You are a helpful assistant that breaks down complex tasks into manageable steps."
-        )
+#     try:
+#         response = client.messages.create(
+#             model=MODEL,
+#             max_tokens=1000,
+#             messages=[{"role": "user", "content": prompt}],
+#             system="You are a helpful assistant that breaks down complex tasks into manageable steps."
+#         )
 
-        steps = response.content[0].text.strip()
-        progress_placeholder.success("Step-by-step guide generated successfully!")
-        return steps
-    except Exception as e:
-        progress_placeholder.error(f"Error during task breakdown: {e}")
-        return "I apologize, I encountered an error while trying to break down the task."
+#         steps = response.content[0].text.strip()
+#         progress_placeholder.success("Step-by-step guide generated successfully!")
+#         return steps
+#     except Exception as e:
+#         progress_placeholder.error(f"Error during task breakdown: {e}")
+#         return "I apologize, I encountered an error while trying to break down the task."
 
-def guide_through_steps(steps):
-    st.write("I've broken down the task into steps for you. Let's go through them one by one:")
-    step_list = steps.split('\n')
-    for i, step in enumerate(step_list):
-        if step.strip():  # Check if the step is not empty
-            st.write(step)
-            if i < len(step_list) - 1:  # If it's not the last step
-                proceed = st.button(f"I've completed this step", key=f"step_{i}")
-                if not proceed:
-                    break  # Stop if the user hasn't completed the current step
+# def guide_through_steps(steps):
+#     st.write("I've broken down the task into steps for you. Let's go through them one by one:")
+#     step_list = steps.split('\n')
+#     for i, step in enumerate(step_list):
+#         if step.strip():  # Check if the step is not empty
+#             st.write(step)
+#             if i < len(step_list) - 1:  # If it's not the last step
+#                 proceed = st.button(f"I've completed this step", key=f"step_{i}")
+#                 if not proceed:
+#                     break  # Stop if the user hasn't completed the current step
 
-    st.write("Great job! You've completed all the steps. Is there anything else you need help with?")
+#     st.write("Great job! You've completed all the steps. Is there anything else you need help with?")
 
 # Chat state management functions
 def save_chat_state():
@@ -458,42 +458,36 @@ def chat(user_input):
         try:
             combined_context = create_combined_context()
 
-            # Check if the user is asking for help with a complex task
-            if "help me" in user_input.lower() and "step by step" in user_input.lower():
-                steps = handle_complex_task(user_input)
-                full_response = "Certainly! I'd be happy to help you with that task. Here's a breakdown of the steps:\n\n" + steps
-                guide_through_steps(steps)
+            # Existing code for normal chat responses
+            cache_key = generate_cache_key(user_input, combined_context, st.session_state.document_content)
+            cached_response = get_cached_response(cache_key)
+
+            if cached_response:
+                full_response = cached_response
             else:
-                # Existing code for normal chat responses
-                cache_key = generate_cache_key(user_input, combined_context, st.session_state.document_content)
-                cached_response = get_cached_response(cache_key)
+                with st.spinner("Generating response..."):
+                    # Ensure we're sending at least one user message
+                    messages_to_send = st.session_state.conversation[-5:]
+                    if not any(msg["role"] == "user" for msg in messages_to_send):
+                        messages_to_send = [{"role": "user", "content": user_input}] + messages_to_send
 
-                if cached_response:
-                    full_response = cached_response
-                else:
-                    with st.spinner("Generating response..."):
-                        # Ensure we're sending at least one user message
-                        messages_to_send = st.session_state.conversation[-5:]
-                        if not any(msg["role"] == "user" for msg in messages_to_send):
-                            messages_to_send = [{"role": "user", "content": user_input}] + messages_to_send
+                    for event in client.messages.create(
+                            max_tokens=4096,
+                            system=combined_context,
+                            messages=messages_to_send,
+                            model=MODEL,
+                            stream=True,
+                    ):
+                        if st.session_state.generating:
+                            if event.type == "content_block_delta" and hasattr(event.delta, "text"):
+                                full_response += event.delta.text
+                                response_container.markdown(f"{full_response}▌")
+                            time.sleep(0.01)
+                        else:
+                            break
 
-                        for event in client.messages.create(
-                                max_tokens=4096,
-                                system=combined_context,
-                                messages=messages_to_send,
-                                model=MODEL,
-                                stream=True,
-                        ):
-                            if st.session_state.generating:
-                                if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                                    full_response += event.delta.text
-                                    response_container.markdown(f"{full_response}▌")
-                                time.sleep(0.01)
-                            else:
-                                break
-
-                    if st.session_state.generating:
-                        set_cached_response(cache_key, full_response)
+                if st.session_state.generating:
+                    set_cached_response(cache_key, full_response)
 
             response_container.markdown(full_response)
             display_message_stats(full_response)
@@ -584,49 +578,49 @@ def translate_text(text, target_language):
         st.error(f"Error during translation: {e}")
         return "Translation failed."
 
-def summarize_content(content_type):
-    progress_placeholder = st.empty()
-    progress_placeholder.info(f"Generating {content_type} report...")
+# def summarize_content(content_type):
+#     progress_placeholder = st.empty()
+#     progress_placeholder.info(f"Generating {content_type} report...")
 
-    if content_type == "conversation":
-        # Use the entire conversation history
-        text_to_summarize = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
-    elif content_type == "document":
-        text_to_summarize = st.session_state.document_content
-    else:
-        progress_placeholder.error("Invalid content type.")
-        return "Invalid content type."
+#     if content_type == "conversation":
+#         # Use the entire conversation history
+#         text_to_summarize = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
+#     elif content_type == "document":
+#         text_to_summarize = st.session_state.document_content
+#     else:
+#         progress_placeholder.error("Invalid content type.")
+#         return "Invalid content type."
 
-    # Truncate the text if it's too long
-    max_chars = 12000  # Adjust this value based on your model's limitations
-    if len(text_to_summarize) > max_chars:
-        text_to_summarize = text_to_summarize[:max_chars] + "... (truncated)"
+#     # Truncate the text if it's too long
+#     max_chars = 12000  # Adjust this value based on your model's limitations
+#     if len(text_to_summarize) > max_chars:
+#         text_to_summarize = text_to_summarize[:max_chars] + "... (truncated)"
 
-    prompt = f"""
-    Please provide a comprehensive report based on the following {content_type}. Structure the report as follows:
-    1. Introduction: Briefly introduce the main focus of the conversation or document.
-    2. Key Topics Discussed: Summarize the main points and topics that were discussed.
-    3. Decisions Made: Highlight any decisions or conclusions reached during the conversation.
-    4. Action Items: List any actions that need to be taken based on the conversation.
-    5. Conclusion: Summarize the overall outcome of the conversation or document.
+#     prompt = f"""
+#     Please provide a comprehensive report based on the following {content_type}. Structure the report as follows:
+#     1. Introduction: Briefly introduce the main focus of the conversation or document.
+#     2. Key Topics Discussed: Summarize the main points and topics that were discussed.
+#     3. Decisions Made: Highlight any decisions or conclusions reached during the conversation.
+#     4. Action Items: List any actions that need to be taken based on the conversation.
+#     5. Conclusion: Summarize the overall outcome of the conversation or document.
     
-    Here is the content to be summarized:
-    {text_to_summarize}
-    """
+#     Here is the content to be summarized:
+#     {text_to_summarize}
+#     """
 
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=1000,  # Adjust as necessary for a more detailed report
-            messages=[{"role": "user", "content": prompt}],
-            system="You are a helpful assistant that generates detailed reports."
-        )
-        report = response.content[0].text.strip()
-        progress_placeholder.success(f"{content_type.capitalize()} report generated successfully!")
-        return report
-    except Exception as e:
-        progress_placeholder.error(f"Error during report generation: {e}")
-        return f"Report generation failed: {str(e)}"
+#     try:
+#         response = client.messages.create(
+#             model=MODEL,
+#             max_tokens=1000,  # Adjust as necessary for a more detailed report
+#             messages=[{"role": "user", "content": prompt}],
+#             system="You are a helpful assistant that generates detailed reports."
+#         )
+#         report = response.content[0].text.strip()
+#         progress_placeholder.success(f"{content_type.capitalize()} report generated successfully!")
+#         return report
+#     except Exception as e:
+#         progress_placeholder.error(f"Error during report generation: {e}")
+#         return f"Report generation failed: {str(e)}"
 
 def display_report_modal(report, content_type):
     modal = st.empty()
@@ -641,16 +635,16 @@ def display_report_modal(report, content_type):
 
 
 # Add this function to create a modal for displaying the summary
-def display_summary_modal(summary, content_type):
-    modal = st.empty()
-    with modal.container():
-        st.subheader(f"{content_type.capitalize()} Summary")
-        st.write(summary)
-        if st.button("Close"):
-            modal.empty()
-        if st.button("Copy Summary"):
-            pyperclip.copy(summary)
-            st.success("Summary copied to clipboard!", icon="✅")
+# def display_summary_modal(summary, content_type):
+#     modal = st.empty()
+#     with modal.container():
+#         st.subheader(f"{content_type.capitalize()} Summary")
+#         st.write(summary)
+#         if st.button("Close"):
+#             modal.empty()
+#         if st.button("Copy Summary"):
+#             pyperclip.copy(summary)
+#             st.success("Summary copied to clipboard!", icon="✅")
 
 # Function to close all database connections
 def close_db_connections():
@@ -794,23 +788,6 @@ if __name__ == "__main__":
         st.sidebar.subheader("🗑️ Clear Cache")
         if st.sidebar.button("Clear Prompt Cache"):
             clear_cache()
-
-        # Add summarization buttons
-        st.sidebar.subheader("📊 Summarization")
-        col1, col2 = st.sidebar.columns(2)
-
-        if col1.button("Summarize Conversation"):
-            with st.spinner("Generating conversation summary..."):
-                summary = summarize_content("conversation")
-            display_summary_modal(summary, "conversation")
-
-        if col2.button("Summarize Document"):
-            if st.session_state.document_content:
-                with st.spinner("Generating document summary..."):
-                    summary = summarize_content("document")
-                display_summary_modal(summary, "document")
-            else:
-                st.sidebar.warning("No document uploaded to summarize.")
 
         st.title("🤖 Claude AI Chatbot")
         st.markdown("Welcome to your AI assistant! How can I help you today?")
