@@ -89,4 +89,4 @@ Run the Streamlit app:
 ## 🔍 Code Structure
 * app.py: Main application file containing the Streamlit interface and core logic.
 * requirements.txt: List of Python package dependencies.
-* .gitignore: Specifies intentionally untracked files to ignore.
+* .gitignore: Specifies intentionally untracked files to ignore..
