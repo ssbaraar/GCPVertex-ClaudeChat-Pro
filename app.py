@@ -15,81 +15,6 @@ import hashlib
 import atexit
 import secrets
 
-# Local storage component
-import streamlit.components.v1 as components
-
-def init_local_storage():
-    components.html(
-        """
-        <script>
-        const sendMessageToStreamlit = (type, message) => {
-            window.parent.postMessage({type, message}, "*");
-        };
-
-        const getFromLocalStorage = (key) => {
-            sendMessageToStreamlit("GET_LOCAL_STORAGE", localStorage.getItem(key));
-        };
-
-        const setToLocalStorage = (key, value) => {
-            localStorage.setItem(key, value);
-            sendMessageToStreamlit("SET_LOCAL_STORAGE", "OK");
-        };
-
-        const removeFromLocalStorage = (key) => {
-            localStorage.removeItem(key);
-            sendMessageToStreamlit("REMOVE_LOCAL_STORAGE", "OK");
-        };
-
-        window.addEventListener("message", (event) => {
-            if (event.data.type === "GET_LOCAL_STORAGE") {
-                getFromLocalStorage(event.data.key);
-            } else if (event.data.type === "SET_LOCAL_STORAGE") {
-                setToLocalStorage(event.data.key, event.data.value);
-            } else if (event.data.type === "REMOVE_LOCAL_STORAGE") {
-                removeFromLocalStorage(event.data.key);
-            }
-        });
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-def get_local_storage(key):
-    result = st.session_state.get("local_storage_result", None)
-    components.html(
-        f"""
-        <script>
-        window.parent.postMessage({{type: "GET_LOCAL_STORAGE", key: "{key}"}}, "*");
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-    return result
-
-def set_local_storage(key, value):
-    components.html(
-        f"""
-        <script>
-        window.parent.postMessage({{type: "SET_LOCAL_STORAGE", key: "{key}", value: "{value}"}}, "*");
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-def remove_local_storage(key):
-    components.html(
-        f"""
-        <script>
-        window.parent.postMessage({{type: "REMOVE_LOCAL_STORAGE", key: "{key}"}}, "*");
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
 # Constants
 COMMON_PASSWORD = "claude2023"  # Change this to your desired common password
 DB_NAME = 'chatbot.db'
@@ -191,12 +116,8 @@ def init_db():
                      (id INTEGER PRIMARY KEY, user_id INTEGER, conversation TEXT, timestamp TEXT, context TEXT, title TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS chat_state
                      (id INTEGER PRIMARY KEY, user_id INTEGER, conversation TEXT, document_content TEXT, context TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS prompt_cache
-                     (key TEXT PRIMARY KEY, response TEXT, timestamp TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS sessions
                      (id TEXT PRIMARY KEY, user_id INTEGER, expiry TIMESTAMP)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_preferences
-                     (user_id INTEGER PRIMARY KEY, language TEXT, interests TEXT)''')
 
         conn.commit()
     finally:
@@ -235,12 +156,6 @@ def init_client():
 client = init_client()
 
 # User authentication functions
-def set_login_expiration():
-    st.session_state.login_expiration = time.time() + 3600  # 1 hour expiration
-
-def check_login_expiration():
-    return 'login_expiration' in st.session_state and time.time() < st.session_state.login_expiration
-
 def create_session(user_id):
     session_id = secrets.token_urlsafe(32)
     expiry = datetime.now() + timedelta(hours=24)  # 24-hour session
@@ -256,18 +171,6 @@ def validate_session(session_id):
             return user_id
     return None
 
-def load_user_preferences(user_id):
-    result = execute_query("SELECT language, interests FROM user_preferences WHERE user_id = ?", (user_id,))
-    if result:
-        return result[0]
-    return None
-
-def save_user_preferences(user_id, language, interests):
-    safe_db_operation(lambda cur: cur.execute(
-        "INSERT OR REPLACE INTO user_preferences (user_id, language, interests) VALUES (?, ?, ?)",
-        (user_id, language, interests)
-    ))
-
 def login_user(username, password):
     if password == COMMON_PASSWORD:
         result = execute_query("SELECT id FROM users WHERE username = ?", (username,))
@@ -276,24 +179,16 @@ def login_user(username, password):
         else:
             user_id = execute_insert("INSERT INTO users (username) VALUES (?)", (username,))
 
-        # Load user preferences and profile
-        preferences = load_user_preferences(user_id)
-        if preferences:
-            st.session_state.language, st.session_state.interests = preferences
-
         session_id = create_session(user_id)
         st.session_state.session_id = session_id
         st.session_state.logged_in = True
         st.session_state.user_id = user_id
-        st.session_state.username = username  # Set the username in session state
-
-        # Set session in local storage
-        set_local_storage('session_id', session_id)
+        st.session_state.username = username
 
         # Reset chat state for new session
         st.session_state.conversation = []
         st.session_state.document_content = ""
-        st.session_state.context = "You are a helpful assistant."
+        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
         save_chat_state()
 
         return True
@@ -302,11 +197,8 @@ def login_user(username, password):
         return False
 
 def logout_user():
-    session_id = get_local_storage('session_id')
-    if session_id:
-        safe_db_operation(lambda cur: cur.execute("DELETE FROM sessions WHERE id = ?", (session_id,)))
-    # Clear session from local storage
-    remove_local_storage('session_id')
+    if 'session_id' in st.session_state:
+        safe_db_operation(lambda cur: cur.execute("DELETE FROM sessions WHERE id = ?", (st.session_state.session_id,)))
 
     # Save current chat state before logging out
     save_chat_state()
@@ -338,13 +230,13 @@ def load_chat_state():
     else:
         st.session_state.conversation = []
         st.session_state.document_content = ""
-        st.session_state.context = "You are a helpful assistant."
+        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
 
 def generate_conversation_title(conversation):
     sample = json.loads(conversation)[:3]
     sample_text = "\n".join([f"{msg['role']}: {msg['content'][:50]}..." for msg in sample])
 
-    prompt = f"Generate a short, 1-3 word title for this conversation:\n\n{sample_text}\n\nTitle:"
+    prompt = f"Generate a short, 1-2 word title for this conversation:\n\n{sample_text}\n\nTitle:"
 
     try:
         response = client.messages.create(
@@ -366,26 +258,6 @@ def save_conversation():
     execute_insert(
         "INSERT INTO conversations (user_id, conversation, timestamp, context, title) VALUES (?, ?, ?, ?, ?)",
         (st.session_state.user_id, conversation_json, timestamp, st.session_state.context, title)
-    )
-
-# Caching functions
-def generate_cache_key(user_input, context, document_content):
-    combined = f"{user_input}|{context}|{document_content}"
-    return hashlib.md5(combined.encode()).hexdigest()
-
-def get_cached_response(cache_key):
-    result = execute_query("SELECT response, timestamp FROM prompt_cache WHERE key = ?", (cache_key,))
-    if result:
-        response, timestamp = result[0]
-        if (datetime.now() - datetime.fromisoformat(timestamp)).total_seconds() < 86400:
-            return response
-    return None
-
-def set_cached_response(cache_key, response):
-    timestamp = datetime.now().isoformat()
-    execute_insert(
-        "INSERT OR REPLACE INTO prompt_cache (key, response, timestamp) VALUES (?, ?, ?)",
-        (cache_key, response, timestamp)
     )
 
 # Main chat function
@@ -410,39 +282,32 @@ def chat(user_input):
         try:
             combined_context = create_combined_context()
 
-            cache_key = generate_cache_key(user_input, combined_context, st.session_state.document_content)
-            cached_response = get_cached_response(cache_key)
+            with st.spinner("Generating response..."):
+                # Send the entire conversation history
+                messages_to_send = truncate_conversation(st.session_state.conversation)
 
-            if cached_response:
-                full_response = cached_response
-            else:
-                with st.spinner("Generating response..."):
-                    # Send the entire conversation history
-                    messages_to_send = truncate_conversation(st.session_state.conversation)
-
-                    for event in client.messages.create(
-                            max_tokens=4096,
-                            system=combined_context,
-                            messages=messages_to_send,
-                            model=MODEL,
-                            stream=True,
-                    ):
-                        if st.session_state.generating:
-                            if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                                full_response += event.delta.text
-                                response_container.markdown(f"{full_response}▌")
-                            time.sleep(0.01)
-                        else:
-                            break
-
-                if st.session_state.generating:
-                    set_cached_response(cache_key, full_response)
+                for event in client.messages.create(
+                        max_tokens=4096,
+                        system=combined_context,
+                        messages=messages_to_send,
+                        model=MODEL,
+                        stream=True,
+                ):
+                    if st.session_state.generating:
+                        if event.type == "content_block_delta" and hasattr(event.delta, "text"):
+                            full_response += event.delta.text
+                            response_container.markdown(f"{full_response}▌")
+                        time.sleep(0.01)
+                    else:
+                        break
 
             response_container.markdown(full_response)
             display_message_stats(full_response)
 
             # Add the assistant's response to the conversation history
             st.session_state.conversation.append({"role": "assistant", "content": full_response})
+
+            # Save the updated chat state
             save_chat_state()
 
         except Exception as e:
@@ -451,16 +316,54 @@ def chat(user_input):
         finally:
             st.session_state.generating = False
 
+# Ensure chat state is loaded when the user logs in
+if st.session_state.logged_in:
+    load_chat_state()
 # Helper functions
 def create_combined_context():
-    combined_context = f"You are a helpful assistant speaking in {st.session_state.language}. You are knowledgeable in {st.session_state.interests}.\n"
+    combined_context = f"{st.session_state.context}\n\n"
 
-    # Include the entire conversation history
-    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.conversation])
-    combined_context += f"\nConversation history:\n{conversation_text}"
+    # Include a summary of the last 10 chats
+    conversation_summary = ""
+    chat_count = 0
+    total_tokens = 0
+    max_tokens = 50000  # Increased token limit
+
+    for msg in reversed(st.session_state.conversation):
+        if chat_count >= 10:
+            break
+
+        role = msg['role']
+        content = msg['content']
+
+        # Simple compression: truncate long messages and remove extra whitespace
+        if len(content) > 500:
+            content = content[:497] + "..."
+        content = ' '.join(content.split())  # Remove extra whitespace
+
+        summary = f"{role.capitalize()}: {content}\n\n"
+        summary_tokens = len(summary.encode('utf-8'))
+
+        if total_tokens + summary_tokens > max_tokens:
+            break
+
+        conversation_summary = summary + conversation_summary
+        total_tokens += summary_tokens
+        chat_count += 1
+
+    combined_context += f"Recent conversation history:\n{conversation_summary}"
 
     if st.session_state.document_content:
-        combined_context += "\n\nDocument Content:\n" + st.session_state.document_content
+        # Compress document content if needed
+        doc_content = st.session_state.document_content
+        if len(doc_content) > 1000:
+            doc_content = doc_content[:997] + "..."
+        doc_content = ' '.join(doc_content.split())  # Remove extra whitespace
+        combined_context += f"\n\nDocument Content:\n{doc_content}"
+
+    # Ensure we don't exceed the max token limit
+    if len(combined_context.encode('utf-8')) > max_tokens:
+        combined_context = combined_context[:max_tokens].rsplit(' ', 1)[0] + "..."
 
     return combined_context
 
@@ -490,10 +393,6 @@ def parse_docx(file):
     doc = Document(file)
     return "\n".join(para.text for para in doc.paragraphs)
 
-def clear_cache():
-    safe_db_operation(lambda cur: cur.execute("DELETE FROM prompt_cache"))
-    st.sidebar.success("Cache cleared successfully!")
-
 def truncate_conversation(conversation, max_messages=50):
     if len(conversation) > max_messages:
         truncated = conversation[-max_messages:]
@@ -505,19 +404,8 @@ def truncate_conversation(conversation, max_messages=50):
 def close_db_connections():
     db_pool.close_all()
 
-# Ensure that the attributes are initialized in session state
-def initialize_session_state():
-    if 'language' not in st.session_state:
-        st.session_state.language = 'English'  # Default value, you can change it
-    if 'interests' not in st.session_state:
-        st.session_state.interests = ''  # Default value, you can change it
-
 # Main execution
 if __name__ == "__main__":
-    initialize_session_state()  # Initialize session state attributes
-
-    init_local_storage()
-
     # Initialize session state variables
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
@@ -530,7 +418,7 @@ if __name__ == "__main__":
     if 'document_content' not in st.session_state:
         st.session_state.document_content = ""
     if 'context' not in st.session_state:
-        st.session_state.context = "You are a helpful assistant."
+        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
     if 'generating' not in st.session_state:
         st.session_state.generating = False
 
@@ -541,27 +429,16 @@ if __name__ == "__main__":
         atexit.register(close_db_connections)
 
     if not st.session_state.logged_in:
-        session_id = get_local_storage('session_id')
-        if session_id:
-            user_id = validate_session(session_id)
-            if user_id:
-                st.session_state.user_id = user_id
-                st.session_state.logged_in = True
-                load_chat_state()
-                st.rerun()
-
-        if not st.session_state.logged_in:
-            st.title("🤖 VertexClade Pro - Login")
-            with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                submit_button = st.form_submit_button("Login")
-                if submit_button:
-                    if login_user(username, password):
-                        st.success("Logged in successfully!")
-                        st.rerun()
+        st.title("🤖 VertexClade Pro - Login")
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit_button = st.form_submit_button("Login")
+            if submit_button:
+                if login_user(username, password):
+                    st.success("Logged in successfully!")
+                    st.rerun()
     else:
-        set_login_expiration()  # Refresh the login expiration on each interaction
         st.sidebar.title("Chatbot Configuration")
         st.sidebar.write(f"Logged in as: {st.session_state.username}")
         if st.sidebar.button("Logout"):
@@ -578,6 +455,18 @@ if __name__ == "__main__":
             st.session_state.context = new_context
             save_chat_state()
             st.sidebar.success("Context updated successfully!")
+        
+        st.sidebar.subheader("🧠 Current Context")
+        current_context = st.sidebar.text_area("Current context:", st.session_state.context, height=80)
+        if current_context != st.session_state.context:
+            st.session_state.context = current_context
+            save_chat_state()
+            st.sidebar.success("Context updated successfully!")
+
+        # Add a button to view the full context including conversation history
+        if st.sidebar.button("View Full Context"):
+            full_context = create_combined_context()
+            st.sidebar.text_area("Full Context (including conversation history):", full_context, height=300)
 
         st.sidebar.subheader("💬 Conversation Management")
         col1, col2 = st.sidebar.columns(2)
@@ -593,7 +482,7 @@ if __name__ == "__main__":
                 save_conversation()
             st.session_state.conversation = []
             st.session_state.document_content = ""
-            st.session_state.context = "You are a helpful assistant."
+            st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
             save_chat_state()
             st.sidebar.success("New chat started!")
             st.rerun()
@@ -638,10 +527,6 @@ if __name__ == "__main__":
                 save_chat_state()
                 st.sidebar.success("Document content deleted!")
                 st.rerun()
-
-        st.sidebar.subheader("🗑️ Clear Cache")
-        if st.sidebar.button("Clear Prompt Cache"):
-            clear_cache()
 
         st.title("🤖 Claude AI Chatbot")
         st.markdown("Welcome to your AI assistant! How can I help you today?")
