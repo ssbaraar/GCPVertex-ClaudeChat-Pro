@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 import hashlib
 import atexit
 import secrets
-import base64
 
 # Local storage component
 import streamlit.components.v1 as components
@@ -37,7 +36,7 @@ def init_local_storage():
         };
 
         const removeFromLocalStorage = (key) => {
-            localStorage.removeItem(key, value);
+            localStorage.removeItem(key);
             sendMessageToStreamlit("REMOVE_LOCAL_STORAGE", "OK");
         };
 
@@ -197,7 +196,7 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS sessions
                      (id TEXT PRIMARY KEY, user_id INTEGER, expiry TIMESTAMP)''')
         c.execute('''CREATE TABLE IF NOT EXISTS user_preferences
-                     (user_id INTEGER PRIMARY KEY, tone TEXT, language TEXT, interests TEXT)''')
+                     (user_id INTEGER PRIMARY KEY, language TEXT, interests TEXT)''')
 
         conn.commit()
     finally:
@@ -258,15 +257,15 @@ def validate_session(session_id):
     return None
 
 def load_user_preferences(user_id):
-    result = execute_query("SELECT tone, language, interests FROM user_preferences WHERE user_id = ?", (user_id,))
+    result = execute_query("SELECT language, interests FROM user_preferences WHERE user_id = ?", (user_id,))
     if result:
         return result[0]
     return None
 
-def save_user_preferences(user_id, tone, language, interests):
+def save_user_preferences(user_id, language, interests):
     safe_db_operation(lambda cur: cur.execute(
-        "INSERT OR REPLACE INTO user_preferences (user_id, tone, language, interests) VALUES (?, ?, ?, ?)",
-        (user_id, tone, language, interests)
+        "INSERT OR REPLACE INTO user_preferences (user_id, language, interests) VALUES (?, ?, ?)",
+        (user_id, language, interests)
     ))
 
 def login_user(username, password):
@@ -280,7 +279,7 @@ def login_user(username, password):
         # Load user preferences and profile
         preferences = load_user_preferences(user_id)
         if preferences:
-            st.session_state.tone, st.session_state.language, st.session_state.interests = preferences
+            st.session_state.language, st.session_state.interests = preferences
 
         session_id = create_session(user_id)
         st.session_state.session_id = session_id
@@ -318,50 +317,6 @@ def logout_user():
         del st.session_state[key]
 
     st.session_state.logged_in = False
-
-# #basic task breakdown feature.
-# def handle_complex_task(task):
-#     progress_placeholder = st.empty()
-#     progress_placeholder.info("Generating step-by-step guide...")
-
-#     prompt = f"""
-#     The user has requested help with the following task:
-#     {task}
-
-#     Please break this task down into a series of steps. For each step, provide:
-#     1. A brief description of the step
-#     2. Any additional details or explanations needed
-
-#     Format your response as a numbered list.
-#     """
-
-#     try:
-#         response = client.messages.create(
-#             model=MODEL,
-#             max_tokens=1000,
-#             messages=[{"role": "user", "content": prompt}],
-#             system="You are a helpful assistant that breaks down complex tasks into manageable steps."
-#         )
-
-#         steps = response.content[0].text.strip()
-#         progress_placeholder.success("Step-by-step guide generated successfully!")
-#         return steps
-#     except Exception as e:
-#         progress_placeholder.error(f"Error during task breakdown: {e}")
-#         return "I apologize, I encountered an error while trying to break down the task."
-
-# def guide_through_steps(steps):
-#     st.write("I've broken down the task into steps for you. Let's go through them one by one:")
-#     step_list = steps.split('\n')
-#     for i, step in enumerate(step_list):
-#         if step.strip():  # Check if the step is not empty
-#             st.write(step)
-#             if i < len(step_list) - 1:  # If it's not the last step
-#                 proceed = st.button(f"I've completed this step", key=f"step_{i}")
-#                 if not proceed:
-#                     break  # Stop if the user hasn't completed the current step
-
-#     st.write("Great job! You've completed all the steps. Is there anything else you need help with?")
 
 # Chat state management functions
 def save_chat_state():
@@ -440,11 +395,8 @@ def chat(user_input):
 
     st.session_state.generating = True
 
-    # Ensure the conversation starts with a user message
-    if not st.session_state.conversation:
-        st.session_state.conversation = [{"role": "user", "content": user_input}]
-    else:
-        st.session_state.conversation.append({"role": "user", "content": user_input})
+    # Add the user's message to the conversation
+    st.session_state.conversation.append({"role": "user", "content": user_input})
 
     # Display the user's message
     with st.chat_message("user"):
@@ -458,7 +410,6 @@ def chat(user_input):
         try:
             combined_context = create_combined_context()
 
-            # Existing code for normal chat responses
             cache_key = generate_cache_key(user_input, combined_context, st.session_state.document_content)
             cached_response = get_cached_response(cache_key)
 
@@ -466,10 +417,8 @@ def chat(user_input):
                 full_response = cached_response
             else:
                 with st.spinner("Generating response..."):
-                    # Ensure we're sending at least one user message
-                    messages_to_send = st.session_state.conversation[-5:]
-                    if not any(msg["role"] == "user" for msg in messages_to_send):
-                        messages_to_send = [{"role": "user", "content": user_input}] + messages_to_send
+                    # Send the entire conversation history
+                    messages_to_send = truncate_conversation(st.session_state.conversation)
 
                     for event in client.messages.create(
                             max_tokens=4096,
@@ -502,31 +451,13 @@ def chat(user_input):
         finally:
             st.session_state.generating = False
 
-# Now, define the create_combined_context function
-def create_combined_context(window_size=5):
-    combined_context = f"You are a helpful assistant with a {st.session_state.tone} tone, speaking in {st.session_state.language}. You are knowledgeable in {st.session_state.interests}.\n"
-
-    # Use a sliding window of the last N messages
-    recent_messages = st.session_state.conversation[-window_size:]
-    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent_messages])
-
-    combined_context += f"\nRecent conversation history:\n{conversation_text}"
-
-    if st.session_state.document_content:
-        combined_context += "\n\nDocument Content:\n" + st.session_state.document_content
-
-    return combined_context
-
-
 # Helper functions
-def create_combined_context(window_size=5):
-    combined_context = f"You are a helpful assistant with a {st.session_state.tone} tone, speaking in {st.session_state.language}. You are knowledgeable in {st.session_state.interests}.\n"
+def create_combined_context():
+    combined_context = f"You are a helpful assistant speaking in {st.session_state.language}. You are knowledgeable in {st.session_state.interests}.\n"
 
-    # Use a sliding window of the last N messages
-    recent_messages = st.session_state.conversation[-window_size:]
-    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in recent_messages])
-
-    combined_context += f"\nRecent conversation history:\n{conversation_text}"
+    # Include the entire conversation history
+    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.conversation])
+    combined_context += f"\nConversation history:\n{conversation_text}"
 
     if st.session_state.document_content:
         combined_context += "\n\nDocument Content:\n" + st.session_state.document_content
@@ -563,88 +494,12 @@ def clear_cache():
     safe_db_operation(lambda cur: cur.execute("DELETE FROM prompt_cache"))
     st.sidebar.success("Cache cleared successfully!")
 
-def translate_text(text, target_language):
-    prompt = f"Translate the following text to {target_language}:\n{text}"
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=200,  # Adjust as necessary
-            messages=[{"role": "user", "content": prompt}],
-            system="You are a language translation assistant."
-        )
-        translation = response.content[0].text.strip()
-        return translation
-    except Exception as e:
-        st.error(f"Error during translation: {e}")
-        return "Translation failed."
-
-# def summarize_content(content_type):
-#     progress_placeholder = st.empty()
-#     progress_placeholder.info(f"Generating {content_type} report...")
-
-#     if content_type == "conversation":
-#         # Use the entire conversation history
-#         text_to_summarize = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
-#     elif content_type == "document":
-#         text_to_summarize = st.session_state.document_content
-#     else:
-#         progress_placeholder.error("Invalid content type.")
-#         return "Invalid content type."
-
-#     # Truncate the text if it's too long
-#     max_chars = 12000  # Adjust this value based on your model's limitations
-#     if len(text_to_summarize) > max_chars:
-#         text_to_summarize = text_to_summarize[:max_chars] + "... (truncated)"
-
-#     prompt = f"""
-#     Please provide a comprehensive report based on the following {content_type}. Structure the report as follows:
-#     1. Introduction: Briefly introduce the main focus of the conversation or document.
-#     2. Key Topics Discussed: Summarize the main points and topics that were discussed.
-#     3. Decisions Made: Highlight any decisions or conclusions reached during the conversation.
-#     4. Action Items: List any actions that need to be taken based on the conversation.
-#     5. Conclusion: Summarize the overall outcome of the conversation or document.
-    
-#     Here is the content to be summarized:
-#     {text_to_summarize}
-#     """
-
-#     try:
-#         response = client.messages.create(
-#             model=MODEL,
-#             max_tokens=1000,  # Adjust as necessary for a more detailed report
-#             messages=[{"role": "user", "content": prompt}],
-#             system="You are a helpful assistant that generates detailed reports."
-#         )
-#         report = response.content[0].text.strip()
-#         progress_placeholder.success(f"{content_type.capitalize()} report generated successfully!")
-#         return report
-#     except Exception as e:
-#         progress_placeholder.error(f"Error during report generation: {e}")
-#         return f"Report generation failed: {str(e)}"
-
-def display_report_modal(report, content_type):
-    modal = st.empty()
-    with modal.container():
-        st.subheader(f"{content_type.capitalize()} Report")
-        st.write(report)
-        if st.button("Close"):
-            modal.empty()
-        if st.button("Copy Report"):
-            pyperclip.copy(report)
-            st.success("Report copied to clipboard!", icon="✅")
-
-
-# Add this function to create a modal for displaying the summary
-# def display_summary_modal(summary, content_type):
-#     modal = st.empty()
-#     with modal.container():
-#         st.subheader(f"{content_type.capitalize()} Summary")
-#         st.write(summary)
-#         if st.button("Close"):
-#             modal.empty()
-#         if st.button("Copy Summary"):
-#             pyperclip.copy(summary)
-#             st.success("Summary copied to clipboard!", icon="✅")
+def truncate_conversation(conversation, max_messages=50):
+    if len(conversation) > max_messages:
+        truncated = conversation[-max_messages:]
+        truncated[0]["content"] = f"[Earlier conversation truncated] ... {truncated[0]['content']}"
+        return truncated
+    return conversation
 
 # Function to close all database connections
 def close_db_connections():
@@ -652,8 +507,6 @@ def close_db_connections():
 
 # Ensure that the attributes are initialized in session state
 def initialize_session_state():
-    if 'tone' not in st.session_state:
-        st.session_state.tone = 'Formal'  # Default value, you can change it
     if 'language' not in st.session_state:
         st.session_state.language = 'English'  # Default value, you can change it
     if 'interests' not in st.session_state:
@@ -740,6 +593,7 @@ if __name__ == "__main__":
                 save_conversation()
             st.session_state.conversation = []
             st.session_state.document_content = ""
+            st.session_state.context = "You are a helpful assistant."
             save_chat_state()
             st.sidebar.success("New chat started!")
             st.rerun()
