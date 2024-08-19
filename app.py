@@ -15,6 +15,22 @@ import hashlib
 import atexit
 import secrets
 
+# Initialize session state variables
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
+if 'username' not in st.session_state:
+    st.session_state.username = None
+if 'conversation' not in st.session_state:
+    st.session_state.conversation = []
+if 'document_content' not in st.session_state:
+    st.session_state.document_content = ""
+if 'context' not in st.session_state:
+    st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+if 'generating' not in st.session_state:
+    st.session_state.generating = False
+    
 # Constants
 COMMON_PASSWORD = "claude2023"  # Change this to your desired common password
 DB_NAME = 'chatbot.db'
@@ -403,6 +419,10 @@ def truncate_conversation(conversation, max_messages=50):
 # Function to close all database connections
 def close_db_connections():
     db_pool.close_all()
+    
+# Ensure chat state is loaded when the user logs in
+if st.session_state.logged_in:
+    load_chat_state()
 
 # Main execution
 if __name__ == "__main__":
@@ -421,6 +441,8 @@ if __name__ == "__main__":
         st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
     if 'generating' not in st.session_state:
         st.session_state.generating = False
+
+
 
     # Check if this is a new session
     if 'db_initialized' not in st.session_state:
