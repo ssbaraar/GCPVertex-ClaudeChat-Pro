@@ -332,6 +332,7 @@ def chat(user_input):
         finally:
             st.session_state.generating = False
 
+
 # Ensure chat state is loaded when the user logs in
 if st.session_state.logged_in:
     load_chat_state()
@@ -461,101 +462,103 @@ if __name__ == "__main__":
                     st.success("Logged in successfully!")
                     st.rerun()
     else:
-        st.sidebar.title("Chatbot Configuration")
-        st.sidebar.write(f"Logged in as: {st.session_state.username}")
-        if st.sidebar.button("Logout"):
-            logout_user()
-            st.rerun()
+        left_sidebar, main_content, right_sidebar = st.columns([1, 3, 1])
+        with left_sidebar:
+            st.sidebar.title("Chatbot Configuration")
+            st.sidebar.write(f"Logged in as: {st.session_state.username}")
+            if st.sidebar.button("Logout"):
+                logout_user()
+                st.rerun()
 
         # Load chat state for the logged-in user
         if "conversation" not in st.session_state:
             load_chat_state()
 
-        st.sidebar.subheader("🎭 Define Chatbot Role")
-        new_context = st.sidebar.text_area("Enter the role and purpose:", st.session_state.context, height=100)
-        if new_context != st.session_state.context:
-            st.session_state.context = new_context
-            save_chat_state()
-            st.sidebar.success("Context updated successfully!")
-        
-        st.sidebar.subheader("🧠 Current Context")
-        current_context = st.sidebar.text_area("Current context:", st.session_state.context, height=80)
-        if current_context != st.session_state.context:
-            st.session_state.context = current_context
-            save_chat_state()
-            st.sidebar.success("Context updated successfully!")
-
-        # Add a button to view the full context including conversation history
-        if st.sidebar.button("View Full Context"):
-            full_context = create_combined_context()
-            st.sidebar.text_area("Full Context (including conversation history):", full_context, height=300)
-
-        st.sidebar.subheader("💬 Conversation Management")
-        col1, col2 = st.sidebar.columns(2)
-        if col1.button("🗑️Clear Chat", key="clear_chat"):
-            st.session_state.conversation = []
-            st.session_state.document_content = ""
-            save_chat_state()
-            st.sidebar.success("Chat cleared!")
-            st.rerun()
-
-        if col2.button("🆕New Chat", key="new_chat"):
-            if st.session_state.conversation:
-                save_conversation()
-            st.session_state.conversation = []
-            st.session_state.document_content = ""
-            st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
-            save_chat_state()
-            st.sidebar.success("New chat started!")
-            st.rerun()
-
-        st.sidebar.subheader("📜 Conversation History")
-        conversation_history = execute_query(
-            "SELECT id, conversation, timestamp, context, title FROM conversations WHERE user_id = ? ORDER BY timestamp DESC",
-            (st.session_state.user_id,)
-        )
-
-        for idx, (conv_id, conv, timestamp, context, title) in enumerate(conversation_history):
-            col1, col2, col3 = st.sidebar.columns([0.7, 0.35, 0.2])
-            col1.write(f"{title} - {timestamp}")
-            if col2.button("Load", key=f"load_conv_{idx}", use_container_width=True):
-                st.session_state.conversation = json.loads(conv)
-                st.session_state.context = context
+        with st.sidebar.expander("🎭 Define Chatbot Role", expanded=False):
+            new_context = st.text_area("Enter the role and purpose:", st.session_state.context, height=80)
+            if new_context != st.session_state.context:
+                st.session_state.context = new_context
                 save_chat_state()
-                st.rerun()
-            if col3.button("🗑️", key=f"delete_conv_{idx}", use_container_width=True):
-                safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)))
-                st.sidebar.success(f"{title} deleted!")
-                st.rerun()
+                st.success("Context updated successfully!")
 
-        if conversation_history:
-            if st.sidebar.button("Delete All Saved Conversations"):
-                safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE user_id = ?", (st.session_state.user_id,)))
-                st.sidebar.success("All saved conversations deleted!")
-                st.rerun()
-
-        st.sidebar.subheader("📄 Upload Document")
-        uploaded_file = st.sidebar.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
-        if uploaded_file:
-            with st.spinner("Processing document..."):
-                st.session_state.document_content = parse_document(uploaded_file)
+        with st.sidebar.expander("🧠 Current Context", expanded=False):
+            current_context = st.text_area("Current context:", st.session_state.context, height=60)
+            if current_context != st.session_state.context:
+                st.session_state.context = current_context
                 save_chat_state()
-                st.sidebar.success("✅ Document processed successfully!")
+                st.success("Context updated successfully!")
 
-        if st.session_state.document_content:
-            st.sidebar.text_area("Document Content:", st.session_state.document_content, height=150)
-            if st.sidebar.button("❌ Delete Document Content"):
+            if st.button("View Full Context"):
+                full_context = create_combined_context()
+                st.text_area("Full Context (including conversation history):", full_context, height=200)
+
+        with st.sidebar.expander("💬 Conversation Management", expanded=False):
+            col1, col2 = st.columns(2)
+            if col1.button("Clear Chat", key="clear_chat"):
+                st.session_state.conversation = []
                 st.session_state.document_content = ""
                 save_chat_state()
-                st.sidebar.success("Document content deleted!")
+                st.success("Chat cleared!")
                 st.rerun()
 
+            if col2.button("New Chat", key="new_chat" ):
+                if st.session_state.conversation:
+                    save_conversation()
+                st.session_state.conversation = []
+                st.session_state.document_content = ""
+                st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+                save_chat_state()
+                st.success("New chat started!")
+                st.rerun()
+
+        with st.sidebar.expander("📜 Conversation History", expanded=False):
+            conversation_history = execute_query(
+                "SELECT id, conversation, timestamp, context, title FROM conversations WHERE user_id = ? ORDER BY timestamp DESC",
+                (st.session_state.user_id,)
+            )
+
+            for idx, (conv_id, conv, timestamp, context, title) in enumerate(conversation_history):
+                col1, col2, col3 = st.columns([0.6, 0.25, 0.15])
+                col1.write(f"<small>{title} - {timestamp}</small>", unsafe_allow_html=True)
+                if col2.button("↻", key=f"load_conv_{idx}", use_container_width=True):
+                    st.session_state.conversation = json.loads(conv)
+                    st.session_state.context = context
+                    save_chat_state()
+                    st.rerun()
+                if col3.button("x", key=f"delete_conv_{idx}", use_container_width=True):
+                    safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)))
+                    st.success(f"{title} deleted!")
+                    st.rerun()
+
+            if conversation_history:
+                if st.button("Delete All Saved Conversations"):
+                    safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE user_id = ?", (st.session_state.user_id,)))
+                    st.success("All saved conversations deleted!")
+                    st.rerun()
+
+        with st.sidebar.expander("📄 Upload Document", expanded=False):
+            uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
+            if uploaded_file:
+                with st.spinner("Processing document..."):
+                    st.session_state.document_content = parse_document(uploaded_file)
+                    save_chat_state()
+                    st.success("✅ Document processed successfully!")
+
+            if st.session_state.document_content:
+                st.text_area("Document Content:", st.session_state.document_content, height=100)
+                if st.button("❌ Delete Document Content"):
+                    st.session_state.document_content = ""
+                    save_chat_state()
+                    st.success("Document content deleted!")
+                    st.rerun()
+
+        # Main chat interface
         st.title("🤖 Claude AI Chatbot")
-        st.markdown("Welcome to your AI assistant! How can I help you today?")
+        st.markdown("<small>Welcome to your AI assistant! How can I help you today?</small>", unsafe_allow_html=True)
 
         for idx, message in enumerate(st.session_state.conversation):
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                st.markdown(f"<small>{message['content']}</small>", unsafe_allow_html=True)
                 display_message_stats(message["content"])
                 col1, col2 = st.columns([0.13, 0.9])
                 if col1.button("📋 Copy", key=f"copy_{message['role']}_{idx}", help="Copy this message"):
@@ -573,6 +576,27 @@ if __name__ == "__main__":
 
         if user_input:
             chat(user_input)
+        with right_sidebar:
+            st.title("Right Sidebar")
+
+            with st.expander("📊 Chat Statistics", expanded=False):
+                total_messages = len(st.session_state.conversation)
+                user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
+                assistant_messages = total_messages - user_messages
+
+                st.write(f"Total messages: {total_messages}")
+                st.write(f"User messages: {user_messages}")
+                st.write(f"Assistant messages: {assistant_messages}")
+
+            with st.expander("🔍 Search Conversation", expanded=False):
+                search_term = st.text_input("Enter search term:")
+                if search_term:
+                    search_results = [msg for msg in st.session_state.conversation if search_term.lower() in msg['content'].lower()]
+                    st.write(f"Found {len(search_results)} results:")
+                    for idx, msg in enumerate(search_results):
+                        st.text_area(f"Result {idx + 1}", msg['content'], height=100)
+
+            # Add more sections or functionality to the right sidebar as needed
 
 # Register the function to be called when the Streamlit script stops
 atexit.register(close_db_connections)
