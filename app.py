@@ -27,9 +27,19 @@ if 'conversation' not in st.session_state:
 if 'document_content' not in st.session_state:
     st.session_state.document_content = ""
 if 'context' not in st.session_state:
-    st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+    st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
 if 'generating' not in st.session_state:
     st.session_state.generating = False
+
+# Add the temperature, top_p, and max_tokens session state variables here
+if 'temperature' not in st.session_state:
+    st.session_state.temperature = 0.7  # Default value
+
+if 'top_p' not in st.session_state:
+    st.session_state.top_p = 0.9  # Default value
+
+if 'max_tokens' not in st.session_state:
+    st.session_state.max_tokens = 4096  # Default value
     
 # Constants
 COMMON_PASSWORD = "claude2023"  # Change this to your desired common password
@@ -204,7 +214,7 @@ def login_user(username, password):
         # Reset chat state for new session
         st.session_state.conversation = []
         st.session_state.document_content = ""
-        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+        st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
         save_chat_state()
 
         return True
@@ -246,7 +256,7 @@ def load_chat_state():
     else:
         st.session_state.conversation = []
         st.session_state.document_content = ""
-        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+        st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
 
 def generate_conversation_title(conversation):
     sample = json.loads(conversation)[:3]
@@ -303,7 +313,9 @@ def chat(user_input):
                 messages_to_send = truncate_conversation(st.session_state.conversation)
 
                 for event in client.messages.create(
-                        max_tokens=4096,
+                        max_tokens=st.session_state.max_tokens,
+                        temperature=st.session_state.temperature,
+                        top_p=st.session_state.top_p,
                         system=combined_context,
                         messages=messages_to_send,
                         model=MODEL,
@@ -385,6 +397,10 @@ def create_combined_context():
     return combined_context
 
 def display_message_stats(text):
+    if isinstance(text, list):
+        # If text is a list, join it into a single string
+        text = ' '.join(map(str, text))
+
     word_count = len(text.split())
     token_count = len(text.encode('utf-8'))
     st.caption(f"Word count: {word_count} | Token count: {token_count}")
@@ -439,7 +455,7 @@ if __name__ == "__main__":
     if 'document_content' not in st.session_state:
         st.session_state.document_content = ""
     if 'context' not in st.session_state:
-        st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
+        st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
     if 'generating' not in st.session_state:
         st.session_state.generating = False
 
@@ -465,14 +481,50 @@ if __name__ == "__main__":
         left_sidebar, main_content, right_sidebar = st.columns([1, 3, 1])
         with left_sidebar:
             st.sidebar.title("Chatbot Configuration")
-            st.sidebar.write(f"Logged in as: {st.session_state.username}")
-            if st.sidebar.button("Logout"):
+
+            # Create two columns for the login info and logout button
+            col1, col2 = st.sidebar.columns([2, 1])
+
+            # Display the logged-in username in the first column
+            col1.write(f"Logged in as: {st.session_state.username}")
+
+            # Place the logout button in the second column
+            if col2.button("log out" , help="click here to log out"):
                 logout_user()
                 st.rerun()
+                
+        # Conversation Management section (without dropdown)
+        st.sidebar.subheader("💬 Conversation Management")
+        col1, col2 = st.sidebar.columns(2)
+        if col1.button("Clear Chat", key="clear_chat",  help="Click here to clear the current chat history"):
+            st.session_state.conversation = []
+            st.session_state.document_content = ""
+            save_chat_state()
+            st.success("Chat cleared!")
+            st.rerun()
+
+        if col2.button("New Chat", key="new_chat", help="Click here to start a new chat session"):
+            if st.session_state.conversation:
+                save_conversation()
+            st.session_state.conversation = []
+            st.session_state.document_content = ""
+            st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
+            save_chat_state()
+            st.success("New chat started!")
+            st.rerun()
 
         # Load chat state for the logged-in user
         if "conversation" not in st.session_state:
             load_chat_state()
+            
+        with st.sidebar.expander("⚙️ Model Settings", expanded=False):
+            st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.temperature, 0.01,
+                                             help="Controls the randomness of the output. Lower values make the output more deterministic.")
+            st.session_state.top_p = st.slider("Top-p (Nucleus Sampling)", 0.0, 1.0, st.session_state.top_p, 0.01,
+                                       help="Controls the diversity of the output. Lower values make the output more focused.")
+            st.session_state.max_tokens = st.slider("Max Tokens", 256, 4096, st.session_state.max_tokens, 64,
+                                            help="Sets the maximum number of tokens in the output. Higher values allow longer responses.")
+
 
         with st.sidebar.expander("🎭 Define Chatbot Role", expanded=False):
             new_context = st.text_area("Enter the role and purpose:", st.session_state.context, height=80)
@@ -491,25 +543,6 @@ if __name__ == "__main__":
             if st.button("View Full Context"):
                 full_context = create_combined_context()
                 st.text_area("Full Context (including conversation history):", full_context, height=200)
-
-        with st.sidebar.expander("💬 Conversation Management", expanded=False):
-            col1, col2 = st.columns(2)
-            if col1.button("Clear Chat", key="clear_chat"):
-                st.session_state.conversation = []
-                st.session_state.document_content = ""
-                save_chat_state()
-                st.success("Chat cleared!")
-                st.rerun()
-
-            if col2.button("New Chat", key="new_chat" ):
-                if st.session_state.conversation:
-                    save_conversation()
-                st.session_state.conversation = []
-                st.session_state.document_content = ""
-                st.session_state.context = "When a user asks you a <query>{$QUERY}</query>, your goal is to assist them with computer science concepts. First, analyze the query to determine if it relates to computer science. If it is related, think through the relevant concepts, theories, and examples that could help answer the query. Organize your thoughts logically and provide a detailed, accurate response within <answer> tags, explaining the concepts using examples and analogies where appropriate, while tailoring your response to the user's level of understanding. If the query is not related to computer science, politely inform the user that it is outside the scope of your knowledge and suggest they rephrase their query or ask a different question related to computer science, also within <answer> tags. Your goal is to be a helpful and knowledgeable assistant, and if unsure about a concept, acknowledge it and provide a partial response or suggest additional resources."
-                save_chat_state()
-                st.success("New chat started!")
-                st.rerun()
 
         with st.sidebar.expander("📜 Conversation History", expanded=False):
             conversation_history = execute_query(
