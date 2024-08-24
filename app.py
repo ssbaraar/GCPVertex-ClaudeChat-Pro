@@ -443,24 +443,6 @@ if st.session_state.logged_in:
 
 # Main execution
 if __name__ == "__main__":
-    # Initialize session state variables
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = None
-    if 'username' not in st.session_state:
-        st.session_state.username = None
-    if 'conversation' not in st.session_state:
-        st.session_state.conversation = []
-    if 'document_content' not in st.session_state:
-        st.session_state.document_content = ""
-    if 'context' not in st.session_state:
-        st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
-    if 'generating' not in st.session_state:
-        st.session_state.generating = False
-
-
-
     # Check if this is a new session
     if 'db_initialized' not in st.session_state:
         st.session_state.db_initialized = True
