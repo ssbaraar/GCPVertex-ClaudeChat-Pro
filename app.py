@@ -40,7 +40,7 @@ if 'top_p' not in st.session_state:
 
 if 'max_tokens' not in st.session_state:
     st.session_state.max_tokens = 4096  # Default value
-    
+
 # Constants
 COMMON_PASSWORD = "claude2023"  # Change this to your desired common password
 DB_NAME = 'chatbot.db'
@@ -344,10 +344,6 @@ def chat(user_input):
         finally:
             st.session_state.generating = False
 
-
-# Ensure chat state is loaded when the user logs in
-if st.session_state.logged_in:
-    load_chat_state()
 # Helper functions
 def create_combined_context():
     combined_context = f"{st.session_state.context}\n\n"
@@ -436,7 +432,7 @@ def truncate_conversation(conversation, max_messages=50):
 # Function to close all database connections
 def close_db_connections():
     db_pool.close_all()
-    
+
 # Ensure chat state is loaded when the user logs in
 if st.session_state.logged_in:
     load_chat_state()
@@ -460,25 +456,23 @@ if __name__ == "__main__":
                     st.success("Logged in successfully!")
                     st.rerun()
     else:
-        left_sidebar, main_content, right_sidebar = st.columns([1, 3, 1])
-        with left_sidebar:
-            st.sidebar.title("Chatbot Configuration")
+        st.sidebar.title("Chatbot Configuration")
 
-            # Create two columns for the login info and logout button
-            col1, col2 = st.sidebar.columns([2, 1])
+        # Create two columns for the login info and logout button
+        col1, col2 = st.sidebar.columns([2, 1])
 
-            # Display the logged-in username in the first column
-            col1.write(f"Logged in as: {st.session_state.username}")
+        # Display the logged-in username in the first column
+        col1.write(f"Logged in as: {st.session_state.username}")
 
-            # Place the logout button in the second column
-            if col2.button("log out" , help="click here to log out"):
-                logout_user()
-                st.rerun()
-                
+        # Place the logout button in the second column
+        if col2.button("Log out", help="Click here to log out"):
+            logout_user()
+            st.rerun()
+
         # Conversation Management section (without dropdown)
         st.sidebar.subheader("💬 Conversation Management")
         col1, col2 = st.sidebar.columns(2)
-        if col1.button("Clear Chat", key="clear_chat",  help="Click here to clear the current chat history"):
+        if col1.button("Clear Chat", key="clear_chat", help="Click here to clear the current chat history"):
             st.session_state.conversation = []
             st.session_state.document_content = ""
             save_chat_state()
@@ -498,7 +492,7 @@ if __name__ == "__main__":
         # Load chat state for the logged-in user
         if "conversation" not in st.session_state:
             load_chat_state()
-            
+
         with st.sidebar.expander("⚙️ Model Settings", expanded=False):
             st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.temperature, 0.01,
                                              help="Controls the randomness of the output. Lower values make the output more deterministic.")
@@ -506,7 +500,6 @@ if __name__ == "__main__":
                                        help="Controls the diversity of the output. Lower values make the output more focused.")
             st.session_state.max_tokens = st.slider("Max Tokens", 256, 4096, st.session_state.max_tokens, 64,
                                             help="Sets the maximum number of tokens in the output. Higher values allow longer responses.")
-
 
         with st.sidebar.expander("🎭 Define Chatbot Role", expanded=False):
             new_context = st.text_area("Enter the role and purpose:", st.session_state.context, height=80)
@@ -586,32 +579,41 @@ if __name__ == "__main__":
                         pyperclip.copy(conversation_text)
                         st.success("Entire conversation copied to clipboard!", icon="✅")
 
+        st.sidebar.title("Chat Analytics")
+
+        with st.sidebar.expander("📊 Chat Statistics", expanded=False):
+            total_messages = len(st.session_state.conversation)
+            user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
+            assistant_messages = total_messages - user_messages
+
+            st.write(f"Total messages: {total_messages}")
+            st.write(f"User messages: {user_messages}")
+            st.write(f"Assistant messages: {assistant_messages}")
+
+        with st.sidebar.expander("🔍 Search Conversation", expanded=False):
+            search_term = st.text_input("Enter search term:")
+            if search_term:
+                search_results = [msg for msg in st.session_state.conversation if search_term.lower() in msg['content'].lower()]
+                st.write(f"Found {len(search_results)} results:")
+                for idx, msg in enumerate(search_results):
+                    st.text_area(f"Result {idx + 1}", msg['content'], height=100)
+
+        with st.sidebar.expander("📈 Conversation Analysis", expanded=False):
+            if st.session_state.conversation:
+                avg_user_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'user') / user_messages if user_messages > 0 else 0
+                avg_assistant_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'assistant') / assistant_messages if assistant_messages > 0 else 0
+
+                st.write(f"Avg. user message length: {avg_user_msg_length:.2f} characters")
+                st.write(f"Avg. assistant message length: {avg_assistant_msg_length:.2f} characters")
+
+        with st.sidebar.expander("🏷️ Topic Modeling", expanded=False):
+            st.write("Coming soon: Topic modeling for conversation analysis")
+
         # User input
         user_input = st.chat_input("Ask me anything or share your thoughts...", key="user_input")
 
         if user_input:
             chat(user_input)
-        with right_sidebar:
-            st.title("Right Sidebar")
-
-            with st.expander("📊 Chat Statistics", expanded=False):
-                total_messages = len(st.session_state.conversation)
-                user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
-                assistant_messages = total_messages - user_messages
-
-                st.write(f"Total messages: {total_messages}")
-                st.write(f"User messages: {user_messages}")
-                st.write(f"Assistant messages: {assistant_messages}")
-
-            with st.expander("🔍 Search Conversation", expanded=False):
-                search_term = st.text_input("Enter search term:")
-                if search_term:
-                    search_results = [msg for msg in st.session_state.conversation if search_term.lower() in msg['content'].lower()]
-                    st.write(f"Found {len(search_results)} results:")
-                    for idx, msg in enumerate(search_results):
-                        st.text_area(f"Result {idx + 1}", msg['content'], height=100)
-
-            # Add more sections or functionality to the right sidebar as needed
 
 # Register the function to be called when the Streamlit script stops
 atexit.register(close_db_connections)
