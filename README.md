@@ -90,3 +90,83 @@ Run the Streamlit app:
 * app.py: Main application file containing the Streamlit interface and core logic.
 * requirements.txt: List of Python package dependencies.
 * .gitignore: Specifies intentionally untracked files to ignore..
+## 🔐 Authentication
+
+VertexClaude Pro uses a simple authentication system with a common password for all users. 
+
+- **Default Password**: `claude2023`
+
+To change the password:
+1. Open the `app.py` file
+2. Locate the `COMMON_PASSWORD` constant near the top of the file
+3. Replace `"claude2023"` with your desired password
+4. Save the file and restart the application
+
+⚠️ **Important**: For production use, it's highly recommended to implement a more secure authentication system.
+
+## 🛠️ Configuration
+
+### Google Cloud & Anthropic Setup
+
+1. Ensure you have a Google Cloud project with Vertex AI API enabled
+2. Create a service account with necessary permissions for Vertex AI
+3. Download the service account key as `credentials.json`
+4. Place `credentials.json` in the root directory of the project
+
+### Model Configuration
+
+You can adjust the AI model settings in the sidebar:
+- Temperature
+- Top-p (nucleus sampling)
+- Max tokens
+
+### Chatbot Role
+
+Customize the chatbot's role and purpose using the "Define Chatbot Role" section in the sidebar.
+
+## 📚 Usage
+
+1. Log in using your username and the common password
+2. Start chatting with the AI assistant
+3. Upload documents for context if needed
+4. Adjust settings and explore features in the sidebar
+
+## 🧠 AI Context
+
+The AI uses a combination of:
+- Recent conversation history
+- Uploaded document content (if any)
+- Custom role definition
+
+This context is used to inform the AI's responses and maintain coherence throughout the conversation.
+
+## 💾 Data Storage
+
+Conversations and user data are stored in a SQLite database (`chatbot.db` by default). The application uses a connection pool for efficient database operations.
+
+## 🚀 Deployment
+
+For production deployment:
+1. Set up a proper authentication system
+2. Use environment variables for sensitive information
+3. Consider using a more robust database system
+4. Implement additional security measures as needed
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome! Feel free to check [issues page](https://github.com/yourusername/vertexclaude-pro/issues).
+
+## 📧 Contact
+
+Your Name - your.email@example.com
+
+Project Link: [https://github.com/yourusername/vertexclaude-pro](https://github.com/yourusername/vertexclaude-pro)
+
+---
+
+🔓 Unlock the power of AI with VertexClaude Pro! 🚀
+
