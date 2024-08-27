@@ -1,5 +1,5 @@
 # Claude AI Chatbot
-![image](https://github.com/user-attachments/assets/c7e78e55-b05c-48c0-9bab-f8a04dbcd3dc)
+![image](image.png)
 
 
 ## 🤖 Overview
