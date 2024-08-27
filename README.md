@@ -38,14 +38,13 @@ This project implements an interactive AI chatbot using Anthropic's Claude model
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/yourusername/claude-ai-chatbot.git
-   cd claude-ai-chatbot
+   git clone https://github.com/ssbaraar/GCPVertex-ClaudeChat-Pro.git
    
 2. **Create a virtual environment:**
 
     ```bash
     python -m venv venv
-    source venv/bin/activate  # On Windows use venv\\Scripts\\activate
+    source .venv/bin/activate  # On Windows use venv\\Scripts\\activate
     
 3. **Install the required packages:**
 
@@ -73,7 +72,7 @@ Modify the LOCATION, PROJECT_ID, and MODEL variables in the script if necessary.
 Run the Streamlit app:
 
     streamlit run app.py
-    Navigate to the URL provided by Streamlit (usually http://localhost:8501).
+    Navigate to the URL provided by Streamlit .
 
 ## 🖥️ Usage
 1. -Start a Conversation: Type your message in the chat input at the bottom of the page.
