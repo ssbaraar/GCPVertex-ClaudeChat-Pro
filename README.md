@@ -152,19 +152,15 @@ For production deployment:
 3. Consider using a more robust database system
 4. Implement additional security measures as needed
 
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🤝 Contributing
 
 Contributions, issues, and feature requests are welcome! Feel free to check [issues page](https://github.com/yourusername/vertexclaude-pro/issues).
 
 ## 📧 Contact
 
-Your Name - your.email@example.com
+Your Name - ssbaraar02@gmail.com
 
-Project Link: [https://github.com/yourusername/vertexclaude-pro](https://github.com/yourusername/vertexclaude-pro)
+Project Link: [Click Here](https://github.com/ssbaraar/GCPVertex-ClaudeChat-Pro)
 
 ---
 
