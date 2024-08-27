@@ -181,7 +181,7 @@ For production deployment:
 
 ## 🤝 Contributing
 
-Contributions, issues, and feature requests are welcome! Feel free to check [issues page](https://github.com/yourusername/vertexclaude-pro/issues).
+Contributions, issues, and feature requests are welcome! Feel free to check [issues page](https://github.com/ssbaraar/GCPVertex-ClaudeChat-Pro/issues).
 
 ## 📧 Contact
 
