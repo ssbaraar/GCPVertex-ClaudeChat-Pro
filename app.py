@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_option_menu import option_menu
 from anthropic import AnthropicVertex
 import os
 import PyPDF2
@@ -438,6 +439,7 @@ if st.session_state.logged_in:
     load_chat_state()
 
 # Main execution
+# Main execution
 if __name__ == "__main__":
     # Check if this is a new session
     if 'db_initialized' not in st.session_state:
@@ -456,164 +458,354 @@ if __name__ == "__main__":
                     st.success("Logged in successfully!")
                     st.rerun()
     else:
-        st.sidebar.title("Chatbot Configuration")
+        # Header
+        st.title("🤖 VertexClade Pro")
 
-        # Create two columns for the login info and logout button
-        col1, col2 = st.sidebar.columns([2, 1])
+        # # Navigation dropdown
+        # selected = st.selectbox(
+        #     "Select a tool:",
+        #     options=[
+        #         "Chat", "Text Summarization", "Content Generation",
+        #         "Data Extraction", "Q&A", "Translation",
+        #         "Text Analysis", "Code Assistant"
+        #     ],
+        #     format_func=lambda x: {
+        #         "Chat": "💬 Chat",
+        #         "Text Summarization": "📝 Text Summarization",
+        #         "Content Generation": "✍️ Content Generation",
+        #         "Data Extraction": "🔍 Data Extraction",
+        #         "Q&A": "❓ Q&A",
+        #         "Translation": "🌐 Translation",
+        #         "Text Analysis": "📊 Text Analysis",
+        #         "Code Assistant": "💻 Code Assistant"
+        #     }[x]
+        # )
+        
+        # # User info and logout button
+        # col1, col2, col3 = st.columns([2, 1, 1])
+        # col1.write(f"Logged in as: {st.session_state.username}")
+        # if col3.button("Log out", help="Click here to log out"):
+        #     logout_user()
+        #     st.rerun()
 
-        # Display the logged-in username in the first column
-        col1.write(f"Logged in as: {st.session_state.username}")
-
-        # Place the logout button in the second column
-        if col2.button("Log out", help="Click here to log out"):
-            logout_user()
-            st.rerun()
-
-        # Conversation Management section (without dropdown)
-        st.sidebar.subheader("💬 Conversation Management")
-        col1, col2 = st.sidebar.columns(2)
-        if col1.button("Clear Chat", key="clear_chat", help="Click here to clear the current chat history"):
-            st.session_state.conversation = []
-            st.session_state.document_content = ""
-            save_chat_state()
-            st.success("Chat cleared!")
-            st.rerun()
-
-        if col2.button("New Chat", key="new_chat", help="Click here to start a new chat session"):
-            if st.session_state.conversation:
-                save_conversation()
-            st.session_state.conversation = []
-            st.session_state.document_content = ""
-            st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
-            save_chat_state()
-            st.success("New chat started!")
-            st.rerun()
-
-        # Load chat state for the logged-in user
-        if "conversation" not in st.session_state:
-            load_chat_state()
-
-        with st.sidebar.expander("⚙️ Model Settings", expanded=False):
-            st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.temperature, 0.01,
-                                             help="Controls the randomness of the output. Lower values make the output more deterministic.")
-            st.session_state.top_p = st.slider("Top-p (Nucleus Sampling)", 0.0, 1.0, st.session_state.top_p, 0.01,
-                                       help="Controls the diversity of the output. Lower values make the output more focused.")
-            st.session_state.max_tokens = st.slider("Max Tokens", 256, 4096, st.session_state.max_tokens, 64,
-                                            help="Sets the maximum number of tokens in the output. Higher values allow longer responses.")
-
-        with st.sidebar.expander("🎭 Define Chatbot Role", expanded=False):
-            new_context = st.text_area("Enter the role and purpose:", st.session_state.context, height=80)
-            if new_context != st.session_state.context:
-                st.session_state.context = new_context
-                save_chat_state()
-                st.success("Context updated successfully!")
-
-        with st.sidebar.expander("🧠 Current Context", expanded=False):
-            current_context = st.text_area("Current context:", st.session_state.context, height=60)
-            if current_context != st.session_state.context:
-                st.session_state.context = current_context
-                save_chat_state()
-                st.success("Context updated successfully!")
-
-            if st.button("View Full Context"):
-                full_context = create_combined_context()
-                st.text_area("Full Context (including conversation history):", full_context, height=200)
-
-        with st.sidebar.expander("📜 Conversation History", expanded=False):
-            conversation_history = execute_query(
-                "SELECT id, conversation, timestamp, context, title FROM conversations WHERE user_id = ? ORDER BY timestamp DESC",
-                (st.session_state.user_id,)
+        # Sidebar
+        with st.sidebar:
+            st.sidebar.title("Chatbot Configuration")
+            # Create two columns for the login info and logout button
+            col1, col2 = st.sidebar.columns([2, 1])
+            #Display the logged-in username in the first column
+            col1.write(f"Logged in as: {st.session_state.username}")
+            # Place the logout button in the second column
+            if col2.button("Log out", help="Click here to log out"):
+                logout_user()
+                st.rerun()
+                
+            # Navigation dropdown
+            selected = st.selectbox(
+                "Select a tool:",
+                options=[
+                    "Chat", "Text Summarization", "Content Generation",
+                    "Data Extraction", "Q&A", "Translation",
+                    "Text Analysis", "Code Assistant"
+                ],
+                format_func=lambda x: {
+                    "Chat": "💬 Chat",
+                    "Text Summarization": "📝 Text Summarization",
+                    "Content Generation": "✍️ Content Generation",
+                    "Data Extraction": "🔍 Data Extraction",
+                    "Q&A": "❓ Q&A",
+                    "Translation": "🌐 Translation",
+                    "Text Analysis": "📊 Text Analysis",
+                    "Code Assistant": "💻 Code Assistant"
+                }[x]
             )
 
-            for idx, (conv_id, conv, timestamp, context, title) in enumerate(conversation_history):
-                col1, col2, col3 = st.columns([0.6, 0.25, 0.15])
-                col1.write(f"<small>{title} - {timestamp}</small>", unsafe_allow_html=True)
-                if col2.button("↻", key=f"load_conv_{idx}", use_container_width=True):
-                    st.session_state.conversation = json.loads(conv)
-                    st.session_state.context = context
+            # Conversation Management section
+            st.sidebar.subheader("💬 Conversation Management")
+            col1, col2 = st.sidebar.columns(2)
+            if col1.button("Clear Chat", key="clear_chat", help="Click here to clear the current chat history"):
+                st.session_state.conversation = []
+                st.session_state.document_content = ""
+                save_chat_state()
+                st.success("Chat cleared!")
+                st.rerun()
+
+            if col2.button("New Chat", key="new_chat", help="Click here to start a new chat session"):
+                if st.session_state.conversation:
+                    save_conversation()
+                st.session_state.conversation = []
+                st.session_state.document_content = ""
+                st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
+                save_chat_state()
+                st.success("New chat started!")
+                st.rerun()
+
+            # Load chat state for the logged-in user
+            if "conversation" not in st.session_state:
+                load_chat_state()
+
+            with st.expander("⚙️ Model Settings", expanded=False):
+                st.session_state.temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.temperature, 0.01,
+                                                 help="Controls the randomness of the output. Lower values make the output more deterministic.")
+                st.session_state.top_p = st.slider("Top-p (Nucleus Sampling)", 0.0, 1.0, st.session_state.top_p, 0.01,
+                                           help="Controls the diversity of the output. Lower values make the output more focused.")
+                st.session_state.max_tokens = st.slider("Max Tokens", 256, 4096, st.session_state.max_tokens, 64,
+                                                help="Sets the maximum number of tokens in the output. Higher values allow longer responses.")
+
+            with st.expander("🎭 Define Chatbot Role", expanded=False):
+                new_context = st.text_area("Enter the role and purpose:", st.session_state.context, height=80)
+                if new_context != st.session_state.context:
+                    st.session_state.context = new_context
                     save_chat_state()
-                    st.rerun()
-                if col3.button("x", key=f"delete_conv_{idx}", use_container_width=True):
-                    safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)))
-                    st.success(f"{title} deleted!")
-                    st.rerun()
+                    st.success("Context updated successfully!")
 
-            if conversation_history:
-                if st.button("Delete All Saved Conversations"):
-                    safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE user_id = ?", (st.session_state.user_id,)))
-                    st.success("All saved conversations deleted!")
-                    st.rerun()
-
-        with st.sidebar.expander("📄 Upload Document", expanded=False):
-            uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
-            if uploaded_file:
-                with st.spinner("Processing document..."):
-                    st.session_state.document_content = parse_document(uploaded_file)
+            with st.expander("🧠 Current Context", expanded=False):
+                current_context = st.text_area("Current context:", st.session_state.context, height=60)
+                if current_context != st.session_state.context:
+                    st.session_state.context = current_context
                     save_chat_state()
-                    st.success("✅ Document processed successfully!")
+                    st.success("Context updated successfully!")
 
-            if st.session_state.document_content:
-                st.text_area("Document Content:", st.session_state.document_content, height=100)
-                if st.button("❌ Delete Document Content"):
-                    st.session_state.document_content = ""
-                    save_chat_state()
-                    st.success("Document content deleted!")
-                    st.rerun()
+                if st.button("View Full Context"):
+                    full_context = create_combined_context()
+                    st.text_area("Full Context (including conversation history):", full_context, height=200)
 
-        # Main chat interface
-        st.title("🤖 Claude AI Chatbot")
-        st.markdown("<small>Welcome to your AI assistant! How can I help you today?</small>", unsafe_allow_html=True)
+            with st.expander("📜 Conversation History", expanded=False):
+                conversation_history = execute_query(
+                    "SELECT id, conversation, timestamp, context, title FROM conversations WHERE user_id = ? ORDER BY timestamp DESC",
+                    (st.session_state.user_id,)
+                )
 
-        for idx, message in enumerate(st.session_state.conversation):
-            with st.chat_message(message["role"]):
-                st.markdown(f"<small>{message['content']}</small>", unsafe_allow_html=True)
-                display_message_stats(message["content"])
-                col1, col2 = st.columns([0.13, 0.9])
-                if col1.button("📋 Copy", key=f"copy_{message['role']}_{idx}", help="Copy this message"):
-                    pyperclip.copy(message["content"])
-                    st.success("Copied to clipboard!", icon="✅")
+                for idx, (conv_id, conv, timestamp, context, title) in enumerate(conversation_history):
+                    col1, col2, col3 = st.columns([0.6, 0.25, 0.15])
+                    col1.write(f"<small>{title} - {timestamp}</small>", unsafe_allow_html=True)
+                    if col2.button("↻", key=f"load_conv_{idx}", use_container_width=True):
+                        st.session_state.conversation = json.loads(conv)
+                        st.session_state.context = context
+                        save_chat_state()
+                        st.rerun()
+                    if col3.button("x", key=f"delete_conv_{idx}", use_container_width=True):
+                        safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE id = ?", (conv_id,)))
+                        st.success(f"{title} deleted!")
+                        st.rerun()
 
-                if idx == len(st.session_state.conversation) - 1:
-                    if col2.button("📋 Copy entire conversation", key="copy_entire_conv", help="Copy the entire conversation to clipboard"):
-                        conversation_text = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
-                        pyperclip.copy(conversation_text)
-                        st.success("Entire conversation copied to clipboard!", icon="✅")
+                if conversation_history:
+                    if st.button("Delete All Saved Conversations"):
+                        safe_db_operation(lambda cur: cur.execute("DELETE FROM conversations WHERE user_id = ?", (st.session_state.user_id,)))
+                        st.success("All saved conversations deleted!")
+                        st.rerun()
 
-        st.sidebar.title("Chat Analytics")
+            with st.expander("📄 Upload Document", expanded=False):
+                uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
+                if uploaded_file:
+                    with st.spinner("Processing document..."):
+                        st.session_state.document_content = parse_document(uploaded_file)
+                        save_chat_state()
+                        st.success("✅ Document processed successfully!")
 
-        with st.sidebar.expander("📊 Chat Statistics", expanded=False):
-            total_messages = len(st.session_state.conversation)
-            user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
-            assistant_messages = total_messages - user_messages
+                if st.session_state.document_content:
+                    st.text_area("Document Content:", st.session_state.document_content, height=100)
+                    if st.button("❌ Delete Document Content"):
+                        st.session_state.document_content = ""
+                        save_chat_state()
+                        st.success("Document content deleted!")
+                        st.rerun()
 
-            st.write(f"Total messages: {total_messages}")
-            st.write(f"User messages: {user_messages}")
-            st.write(f"Assistant messages: {assistant_messages}")
+            st.sidebar.title("Chat Analytics")
 
-        with st.sidebar.expander("🔍 Search Conversation", expanded=False):
-            search_term = st.text_input("Enter search term:")
-            if search_term:
-                search_results = [msg for msg in st.session_state.conversation if search_term.lower() in msg['content'].lower()]
-                st.write(f"Found {len(search_results)} results:")
-                for idx, msg in enumerate(search_results):
-                    st.text_area(f"Result {idx + 1}", msg['content'], height=100)
+            with st.expander("📊 Chat Statistics", expanded=False):
+                total_messages = len(st.session_state.conversation)
+                user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
+                assistant_messages = total_messages - user_messages
 
-        with st.sidebar.expander("📈 Conversation Analysis", expanded=False):
-            if st.session_state.conversation:
-                avg_user_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'user') / user_messages if user_messages > 0 else 0
-                avg_assistant_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'assistant') / assistant_messages if assistant_messages > 0 else 0
+                st.write(f"Total messages: {total_messages}")
+                st.write(f"User messages: {user_messages}")
+                st.write(f"Assistant messages: {assistant_messages}")
 
-                st.write(f"Avg. user message length: {avg_user_msg_length:.2f} characters")
-                st.write(f"Avg. assistant message length: {avg_assistant_msg_length:.2f} characters")
+            with st.expander("🔍 Search Conversation", expanded=False):
+                search_term = st.text_input("Enter search term:")
+                if search_term:
+                    search_results = [msg for msg in st.session_state.conversation if search_term.lower() in msg['content'].lower()]
+                    st.write(f"Found {len(search_results)} results:")
+                    for idx, msg in enumerate(search_results):
+                        st.text_area(f"Result {idx + 1}", msg['content'], height=100)
 
-        with st.sidebar.expander("🏷️ Topic Modeling", expanded=False):
-            st.write("Coming soon: Topic modeling for conversation analysis")
+            with st.expander("📈 Conversation Analysis", expanded=False):
+                if st.session_state.conversation:
+                    avg_user_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'user') / user_messages if user_messages > 0 else 0
+                    avg_assistant_msg_length = sum(len(msg['content']) for msg in st.session_state.conversation if msg['role'] == 'assistant') / assistant_messages if assistant_messages > 0 else 0
+
+                    st.write(f"Avg. user message length: {avg_user_msg_length:.2f} characters")
+                    st.write(f"Avg. assistant message length: {avg_assistant_msg_length:.2f} characters")
+
+            with st.expander("🏷️ Topic Modeling", expanded=False):
+                st.write("Coming soon: Topic modeling for conversation analysis")
+
+        # Main content area
+        if selected == "Chat":
+            st.subheader("💬 Chat")
+            st.markdown("<small>Welcome to your AI assistant! How can I help you today?</small>", unsafe_allow_html=True)
+
+            for idx, message in enumerate(st.session_state.conversation):
+                with st.chat_message(message["role"]):
+                    st.markdown(f"<small>{message['content']}</small>", unsafe_allow_html=True)
+                    display_message_stats(message["content"])
+                    col1, col2 = st.columns([0.13, 0.9])
+                    if col1.button("📋 Copy", key=f"copy_{message['role']}_{idx}", help="Copy this message"):
+                        pyperclip.copy(message["content"])
+                        st.success("Copied to clipboard!", icon="✅")
+
+                    if idx == len(st.session_state.conversation) - 1:
+                        if col2.button("📋 Copy entire conversation", key="copy_entire_conv", help="Copy the entire conversation to clipboard"):
+                            conversation_text = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
+                            pyperclip.copy(conversation_text)
+                            st.success("Entire conversation copied to clipboard!", icon="✅")
 
         # User input
         user_input = st.chat_input("Ask me anything or share your thoughts...", key="user_input")
 
         if user_input:
             chat(user_input)
+
+        else:
+            with st.expander("🛠️ AI Tools", expanded=True):
+                if selected == "Text Summarization":
+                    st.subheader("📝 Text Summarization")
+                    text_to_summarize = st.text_area("Enter the text you want to summarize:", height=200)
+                    if st.button("Summarize"):
+                        if text_to_summarize:
+                            with st.spinner("Generating summary..."):
+                                summary = chat(f"Please summarize the following text:\n\n{text_to_summarize}")
+                            st.subheader("Summary:")
+                            st.write(summary)
+                        else:
+                            st.warning("Please enter some text to summarize.")
+
+                elif selected == "Content Generation":
+                    st.subheader("✍️ Content Generation")
+                    content_type = st.selectbox("Select content type:", ["Blog Post", "Email", "Marketing Slogan", "Product Description"])
+                    topic = st.text_input("Enter the topic or product:")
+                    if st.button("Generate Content"):
+                        if topic:
+                            with st.spinner("Generating content..."):
+                                generated_content = chat(f"Generate a {content_type} about {topic}")
+                            st.subheader("Generated Content:")
+                            st.write(generated_content)
+                        else:
+                            st.warning("Please enter a topic or product.")
+
+                elif selected == "Data Extraction":
+                    st.subheader("🔍 Data / Entity Extraction")
+                    text_for_extraction = st.text_area("Enter the text for entity extraction:", height=200)
+                    if st.button("Extract Entities"):
+                        if text_for_extraction:
+                            with st.spinner("Extracting entities..."):
+                                entities = chat(f"Extract key entities (like names, organizations, locations, dates) from this text:\n\n{text_for_extraction}")
+                            st.subheader("Extracted Entities:")
+                            st.write(entities)
+                        else:
+                            st.warning("Please enter some text for entity extraction.")
+
+                elif selected == "Q&A":
+                    st.subheader("❓ Question Answering")
+                    context = st.text_area("Enter the context or background information:", height=150)
+                    question = st.text_input("Enter your question:")
+                    if st.button("Get Answer"):
+                        if context and question:
+                            with st.spinner("Finding the answer..."):
+                                answer = chat(f"Context: {context}\n\nQuestion: {question}\n\nAnswer:")
+                            st.subheader("Answer:")
+                            st.write(answer)
+                        else:
+                            st.warning("Please provide both context and a question.")
+
+                elif selected == "Translation":
+                    st.subheader("🌐 Text Translation")
+                    source_lang = st.selectbox("Source Language:", ["English", "Spanish", "French", "German", "Chinese"])
+                    target_lang = st.selectbox("Target Language:", ["Spanish", "English", "French", "German", "Chinese"])
+                    text_to_translate = st.text_area("Enter text to translate:", height=150)
+                    if st.button("Translate"):
+                        if text_to_translate:
+                            with st.spinner("Translating..."):
+                                translated_text = chat(f"Translate the following {source_lang} text to {target_lang}:\n\n{text_to_translate}")
+                            st.subheader("Translated Text:")
+                            st.write(translated_text)
+                        else:
+                            st.warning("Please enter some text to translate.")
+
+                elif selected == "Text Analysis":
+                    st.subheader("📊 Text Analysis & Recommendations")
+                    analysis_text = st.text_area("Enter the text for analysis:", height=200)
+                    analysis_type = st.multiselect("Select analysis types:", ["Sentiment Analysis", "Keyword Extraction", "Topic Classification"])
+                    if st.button("Analyze"):
+                        if analysis_text and analysis_type:
+                            with st.spinner("Analyzing text..."):
+                                analysis_results = chat(f"Perform the following analyses on this text: {', '.join(analysis_type)}.\n\nText: {analysis_text}")
+                            st.subheader("Analysis Results:")
+                            st.write(analysis_results)
+                        else:
+                            st.warning("Please enter text and select at least one analysis type.")
+
+                elif selected == "Code Assistant":
+                    st.subheader("💻 Code Explanation & Generation")
+                    code_action = st.radio("Select action:", ["Explain Code", "Generate Code", "Review Code"])
+                    if code_action == "Explain Code":
+                        code_to_explain = st.text_area("Enter the code you want explained:", height=200)
+                        if st.button("Explain"):
+                            if code_to_explain:
+                                with st.spinner("Generating explanation..."):
+                                    explanation = chat(f"Explain this code:\n\n```\n{code_to_explain}\n```")
+                                st.subheader("Explanation:")
+                                st.write(explanation)
+                            else:
+                                st.warning("Please enter some code to explain.")
+                    elif code_action == "Generate Code":
+                        code_description = st.text_area("Describe the code you want generated:", height=150)
+                        programming_language = st.selectbox("Select programming language:", ["Python", "JavaScript", "Java", "C++", "Ruby"])
+                        if st.button("Generate"):
+                            if code_description:
+                                with st.spinner("Generating code..."):
+                                    generated_code = chat(f"Generate {programming_language} code for the following description:\n\n{code_description}")
+                                st.subheader("Generated Code:")
+                                st.code(generated_code, language=programming_language.lower())
+                            else:
+                                st.warning("Please describe the code you want generated.")
+                    elif code_action == "Review Code":
+                        code_to_review = st.text_area("Enter the code you want reviewed:", height=200)
+                        if st.button("Review"):
+                            if code_to_review:
+                                with st.spinner("Reviewing code..."):
+                                    review = chat(f"Review this code and provide suggestions for improvement:\n\n```\n{code_to_review}\n```")
+                                st.subheader("Code Review:")
+                                st.write(review)
+                            else:
+                                st.warning("Please enter some code to review.")
+
+        # Display conversation history for non-Chat tools
+        if selected != "Chat":
+            st.subheader("Conversation History")
+            for idx, message in enumerate(st.session_state.conversation):
+                with st.chat_message(message["role"]):
+                    st.markdown(f"<small>{message['content']}</small>", unsafe_allow_html=True)
+                    display_message_stats(message["content"])
+                    col1, col2 = st.columns([0.13, 0.9])
+                    if col1.button("📋 Copy", key=f"copy_{message['role']}_{idx}", help="Copy this message"):
+                        pyperclip.copy(message["content"])
+                        st.success("Copied to clipboard!", icon="✅")
+
+                    if idx == len(st.session_state.conversation) - 1:
+                        if col2.button("📋 Copy entire conversation", key="copy_entire_conv", help="Copy the entire conversation to clipboard"):
+                            conversation_text = "\n\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in st.session_state.conversation])
+                            pyperclip.copy(conversation_text)
+                            st.success("Entire conversation copied to clipboard!", icon="✅")
+
+        # User input for non-Chat tools
+        user_input = st.text_input("Ask a follow-up question or provide additional input:", key="user_input_non_chat")
+        if st.button("Submit", key="submit_non_chat"):
+            if user_input:
+                chat(user_input)
+            else:
+                st.warning("Please enter some input before submitting.")
 
 # Register the function to be called when the Streamlit script stops
 atexit.register(close_db_connections)
