@@ -1,17 +1,12 @@
-import re
-import os
-from typing import List, Tuple, Union
-from dotenv import load_dotenv; load_dotenv()
-from googlesearch import search as google_search
-from duckduckgo_search import DDGS
-import requests
-import json
-import concurrent.futures
 import streamlit as st
-from google.cloud import aiplatform
-from google.protobuf import json_format
-from google.protobuf.struct_pb2 import Value
+from streamlit_option_menu import option_menu
+from anthropic import AnthropicVertex
+import os
+import PyPDF2
+from docx import Document
 import pyperclip
+import json
+import time
 import sqlite3
 from sqlite3 import Connection
 from threading import Lock
@@ -20,6 +15,11 @@ from datetime import datetime, timedelta
 import hashlib
 import atexit
 import secrets
+from pdf_chat import PDFChatbot
+from wikipediaapi import Wikipedia
+import numpy as np
+import textwrap
+import re
 
 # Initialize session state variables
 if 'logged_in' not in st.session_state:
@@ -36,15 +36,19 @@ if 'context' not in st.session_state:
     st.session_state.context = "You are a helpful assistant with tool calling capabilities. The user has access to the tool's outputs that you as a model cannot see. This could include text, images and more."
 if 'generating' not in st.session_state:
     st.session_state.generating = False
+
+# Add the temperature, top_p, and max_tokens session state variables here
 if 'temperature' not in st.session_state:
-    st.session_state.temperature = 0.7
+    st.session_state.temperature = 0.7  # Default value
+
 if 'top_p' not in st.session_state:
-    st.session_state.top_p = 0.9
+    st.session_state.top_p = 0.9  # Default value
+
 if 'max_tokens' not in st.session_state:
-    st.session_state.max_tokens = 4096
+    st.session_state.max_tokens = 4096  # Default value
 
 # Constants
-COMMON_PASSWORD = "claude2023"
+COMMON_PASSWORD = "claude2023"  # Change this to your desired common password
 DB_NAME = 'chatbot.db'
 POOL_SIZE = 5
 
@@ -137,6 +141,7 @@ def init_db():
     conn = db_pool.get_connection()
     try:
         c = conn.cursor()
+
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (id INTEGER PRIMARY KEY, username TEXT UNIQUE)''')
         c.execute('''CREATE TABLE IF NOT EXISTS conversations
@@ -145,6 +150,7 @@ def init_db():
                      (id INTEGER PRIMARY KEY, user_id INTEGER, conversation TEXT, document_content TEXT, context TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS sessions
                      (id TEXT PRIMARY KEY, user_id INTEGER, expiry TIMESTAMP)''')
+
         conn.commit()
     finally:
         db_pool.return_connection(conn)
@@ -164,19 +170,19 @@ def load_credentials():
 credentials = load_credentials()
 if credentials:
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'credentials.json'
-    LOCATION = credentials.get('location', "us-central1")
+    LOCATION = credentials.get('location', "europe-west1")
     PROJECT_ID = credentials.get('project_id')
+    MODEL = credentials.get('model', "claude-3-5-sonnet@20240620")
 else:
     st.error("Failed to load credentials. Chat functionality will be limited.")
 
-# Initialize Google AI client
+# Initialize Anthropic client
 @st.cache_resource
 def init_client():
     try:
-        aiplatform.init(project=PROJECT_ID, location=LOCATION)
-        return aiplatform.ChatModel.from_pretrained("gemini-1.5-pro-001")
+        return AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
     except Exception as e:
-        st.sidebar.error(f"Failed to initialize Google AI client: {e}")
+        st.sidebar.error(f"Failed to initialize Anthropic client: {e}")
         return None
 
 client = init_client()
@@ -265,12 +271,13 @@ def generate_conversation_title(conversation):
     prompt = f"Generate a short, 1-2 word title for this conversation:\n\n{sample_text}\n\nTitle:"
 
     try:
-        response = client.predict(
-            [aiplatform.ChatMessage(content=prompt, author="human")],
-            temperature=0.7,
-            max_output_tokens=10,
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=10,
+            messages=[{"role": "user", "content": prompt}],
+            system="You are a helpful assistant that generates short, concise titles."
         )
-        title = response.text.strip()
+        title = response.content[0].text.strip()
         return title
     except Exception as e:
         st.error(f"Error generating title: {e}")
@@ -308,73 +315,28 @@ def chat(user_input):
             combined_context = create_combined_context()
 
             with st.spinner("Generating response..."):
-                # Prepare the chat history
-                chat_history = [
-                    aiplatform.ChatMessage(
-                        content=msg["content"],
-                        author="human" if msg["role"] == "user" else "ai"
-                    )
-                    for msg in st.session_state.conversation[:-1]
-                ]
+                # Send the entire conversation history
+                messages_to_send = truncate_conversation(st.session_state.conversation)
 
-                # Add the system message
-                chat_history.insert(0, aiplatform.ChatMessage(content=combined_context, author="system"))
+                for event in client.messages.create(
+                        max_tokens=st.session_state.max_tokens,
+                        temperature=st.session_state.temperature,
+                        top_p=st.session_state.top_p,
+                        system=combined_context,
+                        messages=messages_to_send,
+                        model=MODEL,
+                        stream=True,
+                ):
+                    if st.session_state.generating:
+                        if event.type == "content_block_delta" and hasattr(event.delta, "text"):
+                            full_response += event.delta.text
+                            response_container.markdown(f"{full_response}▌")
+                        time.sleep(0.01)
+                    else:
+                        break
 
-                # Add the latest user message
-                chat_history.append(aiplatform.ChatMessage(content=user_input, author="human"))
-
-                # Define the function for fetch_search_results
-                function_declarations = [
-                    {
-                        "name": "fetch_search_results",
-                        "description": "Fetch search results from the internet",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string"},
-                                "max_results": {"type": "integer", "default": 5},
-                                "verbose": {"type": "boolean", "default": False},
-                                "search_engine": {"type": "string", "default": "duckduckgo"},
-                                "format_output": {"type": "boolean", "default": False}
-                            },
-                            "required": ["query"]
-                        }
-                    }
-                ]
-
-                # Generate the response
-                response = client.predict(
-                    chat_history,
-                    temperature=st.session_state.temperature,
-                    top_p=st.session_state.top_p,
-                    top_k=40,
-                    max_output_tokens=st.session_state.max_tokens,
-                    function_declarations=function_declarations
-                )
-
-                full_response = response.text
-
-                # Check if the model wants to call a function
-                if response.function_call:
-                    function_name = response.function_call.name
-                    function_args = json.loads(response.function_call.args)
-                    if function_name == "fetch_search_results":
-                        search_results = fetch_search_results(**function_args)
-                        full_response += f"\nSearch Results: {search_results}\n"
-
-                        # Send the search results back to the model for a final response
-                        chat_history.append(aiplatform.ChatMessage(content=full_response, author="function"))
-                        final_response = client.predict(
-                            chat_history,
-                            temperature=st.session_state.temperature,
-                            top_p=st.session_state.top_p,
-                            top_k=40,
-                            max_output_tokens=st.session_state.max_tokens
-                        )
-                        full_response += final_response.text
-
-                response_container.markdown(full_response)
-                display_message_stats(full_response)
+            response_container.markdown(full_response)
+            display_message_stats(full_response)
 
             # Add the assistant's response to the conversation history
             st.session_state.conversation.append({"role": "assistant", "content": full_response})
@@ -391,12 +353,6 @@ def chat(user_input):
 # Helper functions
 def create_combined_context():
     combined_context = f"{st.session_state.context}\n\n"
-    combined_context += "You have access to the fetch_search_results function. You can use it to search for information on the internet. The function takes the following parameters:\n"
-    combined_context += "- query: str (required) - The search query\n"
-    combined_context += "- max_results: int (optional, default=5) - Maximum number of search results to fetch\n"
-    combined_context += "- verbose: bool (optional, default=False) - Whether to print the progress of fetching search results\n"
-    combined_context += "- search_engine: str (optional, default='duckduckgo') - The search engine to use ('google', 'duckduckgo', or 'serper')\n"
-    combined_context += "- format_output: bool (optional, default=False) - If True, returns the formatted response string\n\n"
 
     # Include a summary of the last 10 chats
     conversation_summary = ""
@@ -451,134 +407,76 @@ def display_message_stats(text):
     token_count = len(text.encode('utf-8'))
     st.caption(f"Word count: {word_count} | Token count: {token_count}")
 
-def fetch_search_results(query: str, max_results: int = 5, verbose: bool = False, search_engine: str = 'duckduckgo', format_output: bool = False) -> Union[Tuple[List[str], List[str], List[str]], str]:
-    sentences = re.split(r'(?<=[.!?]) +', query)
-
-    urls: List[str] = []
-    titles: List[str] = []
-    descriptions: List[str] = []
-
-    if verbose:
-        print(f"\033[92mQuery Breakdown:\033[0m")
-        for i, sentence in enumerate(sentences):
-            print(f"  Sentence {i + 1}: {sentence}")
-
-    def fetch_results_for_sentence(sentence: str):
-        sentence_urls = []
-        sentence_titles = []
-        sentence_descriptions = []
-
-        if verbose:
-            print(f"\033[92mFetching results for sentence: {sentence} using {search_engine}\033[0m")
-
-        if search_engine.lower() == 'google':
-            results = google_search(sentence, num_results=max_results, advanced=True)
-            for j, link in enumerate(results):
-                if verbose:
-                    print(f"    \033[94mResult {j + 1}:\033[0m")
-                    print(f"      URL: {link.url}")
-                    print(f"      Title: {link.title}")
-                    print(f"      Description: {link.description}")
-                sentence_urls.append(link.url)
-                sentence_titles.append(link.title)
-                sentence_descriptions.append(link.description)
-
-        elif search_engine.lower() == 'duckduckgo':
-            results = DDGS().text(sentence, max_results=max_results)
-            for j, result in enumerate(results):
-                if verbose:
-                    print(f"    \033[94mResult {j + 1}:\033[0m")
-                    print(f"      URL: {result['href']}")
-                    print(f"      Title: {result['title']}")
-                    print(f"      Description: {result['body']}")
-                sentence_urls.append(result['href'])
-                sentence_titles.append(result['title'])
-                sentence_descriptions.append(result['body'])
-
-        # elif search_engine.lower() == 'serper':
-        #     url = "https://google.serper.dev/search"
-        #     payload = json.dumps({"q": sentence})
-        #     headers = {
-        #         'X-API-KEY': os.getenv('SERPER_API_KEY'),
-        #         'Content-Type': 'application/json'
-        #     }
-        #     response = requests.post(url, headers=headers, data=payload)
-        #     if response.status_code == 200:
-        #         data = response.json()
-        #         for j, result in enumerate(data.get('organic', [])):
-        #             if j >= max_results:
-        #                 break
-        #             if verbose:
-        #                 print(f"    \033[94mResult {j + 1}:\033[0m")
-        #                 print(f"      URL: {result['link']}")
-        #                 print(f"      Title: {result['title']}")
-        #                 print(f"      Description: {result['snippet']}")
-        #             sentence_urls.append(result['link'])
-        #             sentence_titles.append(result['title'])
-        #             sentence_descriptions.append(result['snippet'])
-        #     else:
-        #         print("Error fetching results from Serper API")
-        
+def parse_document(file):
+    try:
+        if file.type == "application/pdf":
+            return parse_pdf(file)
+        elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return parse_docx(file)
+        elif file.type == "text/plain":
+            return file.getvalue().decode("utf-8")
         else:
-            raise ValueError("Invalid search engine specified. Please choose either 'google', 'duckduckgo', or 'serper'.")
+            return "Unsupported file type"
+    except Exception as e:
+        return f"Error parsing document: {str(e)}"
 
-        return sentence_urls, sentence_titles, sentence_descriptions
+def parse_pdf(file):
+    reader = PyPDF2.PdfReader(file)
+    return " ".join(page.extract_text() for page in reader.pages)
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(fetch_results_for_sentence, sentence) for sentence in sentences]
+def parse_docx(file):
+    doc = Document(file)
+    return "\n".join(para.text for para in doc.paragraphs)
 
-        for future in concurrent.futures.as_completed(futures):
-            sentence_urls, sentence_titles, sentence_descriptions = future.result()
-            urls.extend(sentence_urls)
-            titles.extend(sentence_titles)
-            descriptions.extend(sentence_descriptions)
-
-    if format_output:
-        return format_response(query, descriptions, verbose=verbose)
-    else:
-        return urls, titles, descriptions
-
-def format_response(query: str, descriptions: List[str], verbose: bool = False) -> str:
-    formatted_response = """
-**Instructions**: 
-
-1. Gather Information from Provided Sources
-    - Carefully read through all the provided sources.
-    - Extract relevant information that directly answers or contributes to answering the query.
-    - Ensure the information is accurate and comes from a reliable source.
-
-2. Synthesize and Integrate Information
-    - Combine information from multiple sources if applicable.
-    - Ensure that the synthesized response is coherent and logically consistent.
-    - Avoid redundancy and ensure the response flows naturally.
-
-3. Use Knowledge Cutoff
-    - If the provided sources do not contain valuable or relevant information, then rely on your pre-existing knowledge up to the cutoff date.
-    - Ensure that any information provided from your knowledge is accurate as of the last update in October 2023.
-
-4. Acknowledge Knowledge Limits
-    - If the query pertains to information or events beyond your knowledge cutoff date, clearly state this to the user.
-    - Avoid providing speculative or unverified information.
-
-5. Maintain Clarity and Precision
-    - Ensure that the response is clear, precise, and directly answers the query.
-    - Avoid unnecessary jargon and ensure the language is accessible to the user.
-
-**Sources**:
-"""
-    for i, description in enumerate(descriptions):
-        formatted_response += f"- {description}\n"
-
-    formatted_response += f"\n\n**Query**: {query}"
-
-    if verbose:
-        print(formatted_response)
-
-    return formatted_response
+def truncate_conversation(conversation, max_messages=50):
+    if len(conversation) > max_messages:
+        truncated = conversation[-max_messages:]
+        truncated[0]["content"] = f"[Earlier conversation truncated] ... {truncated[0]['content']}"
+        return truncated
+    return conversation
 
 # Function to close all database connections
 def close_db_connections():
     db_pool.close_all()
+
+# Add this function to perform Wikipedia search and RAG
+def wikipedia_search(query, client):
+    wiki = Wikipedia('RAGBot/0.0', 'en')
+    page = wiki.page(query)
+    if not page.exists():
+        return "No Wikipedia page found for this query."
+
+    # Get the full text and split it into paragraphs
+    full_text = page.text
+    paragraphs = full_text.split('\n\n')
+
+    # Function to score paragraph relevance
+    def score_paragraph(paragraph, query_terms):
+        paragraph = paragraph.lower()
+        return sum(paragraph.count(term.lower()) for term in query_terms)
+
+    # Preprocess query
+    query_terms = re.findall(r'\w+', query.lower())
+
+    # Score and sort paragraphs
+    scored_paragraphs = [(score_paragraph(p, query_terms), p) for p in paragraphs]
+    scored_paragraphs.sort(reverse=True)
+
+    # Get top 3 most relevant paragraphs
+    top_paragraphs = [p for _, p in scored_paragraphs[:3]]
+
+    context = "\n\n".join(top_paragraphs)
+    return context
+
+# Ensure chat state is loaded when the user logs in
+if st.session_state.logged_in:
+    load_chat_state()
+
+# Initialize PDFChatbot and chat mode
+if 'pdf_chatbot' not in st.session_state:
+    st.session_state.pdf_chatbot = None
+if 'chat_mode' not in st.session_state:
+    st.session_state.chat_mode = "regular"
 
 # Main execution
 if __name__ == "__main__":
@@ -613,7 +511,7 @@ if __name__ == "__main__":
             if col2.button("Log out", help="Click here to log out"):
                 logout_user()
                 st.rerun()
-
+                
             # Navigation dropdown
             selected = st.selectbox(
                 "Select a tool:",
@@ -713,14 +611,35 @@ if __name__ == "__main__":
                 uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "txt"])
                 if uploaded_file:
                     with st.spinner("Processing document..."):
-                        st.session_state.document_content = parse_document(uploaded_file)
-                        save_chat_state()
-                        st.success("✅ Document processed successfully!")
+                        if uploaded_file.type == "application/pdf":
+                            st.session_state.pdf_chatbot = PDFChatbot(client, MODEL)
+                            success = st.session_state.pdf_chatbot.process_pdf(uploaded_file)
+                            if success:
+                                st.success("✅ PDF processed successfully!")
+                                st.session_state.document_content = st.session_state.pdf_chatbot.get_pdf_content()
+                                save_chat_state()
+                            else:
+                                st.error("Failed to process PDF.")
+                        else:
+                            st.session_state.document_content = parse_document(uploaded_file)
+                            save_chat_state()
+                            st.success("✅ Document processed successfully!")
 
-                if st.session_state.document_content:
-                    st.text_area("Document Content:", st.session_state.document_content, height=100)
+                if st.session_state.pdf_chatbot or st.session_state.document_content:
+                    st.write("Chat mode:")
+                    chat_mode = st.radio(
+                        "Select chat mode",
+                        ("Regular", "PDF"),
+                        key="chat_mode_radio",
+                        index=0 if st.session_state.chat_mode == "regular" else 1,
+                        horizontal=True,
+                    )
+                    st.session_state.chat_mode = chat_mode.lower()
+
                     if st.button("❌ Delete Document Content"):
+                        st.session_state.pdf_chatbot = None
                         st.session_state.document_content = ""
+                        st.session_state.chat_mode = "regular"
                         save_chat_state()
                         st.success("Document content deleted!")
                         st.rerun()
@@ -731,6 +650,7 @@ if __name__ == "__main__":
                 total_messages = len(st.session_state.conversation)
                 user_messages = sum(1 for msg in st.session_state.conversation if msg['role'] == 'user')
                 assistant_messages = total_messages - user_messages
+
                 st.write(f"Total messages: {total_messages}")
                 st.write(f"User messages: {user_messages}")
                 st.write(f"Assistant messages: {assistant_messages}")
@@ -754,10 +674,42 @@ if __name__ == "__main__":
             with st.expander("🏷️ Topic Modeling", expanded=False):
                 st.write("Coming soon: Topic modeling for conversation analysis")
 
+            with st.sidebar.expander("🌐 Wikipedia Search", expanded=False):
+                wiki_query = st.text_input("Enter a Wikipedia search term:")
+                if st.button("Search Wikipedia"):
+                    if wiki_query:
+                        with st.spinner("Searching Wikipedia..."):
+                            context = wikipedia_search(wiki_query, client)
+                            st.session_state.wiki_context = context
+                            st.success("Wikipedia search completed!")
+                    else:
+                        st.warning("Please enter a search term.")
+
+                if 'wiki_context' in st.session_state:
+                    st.text_area("Wikipedia Context:", st.session_state.wiki_context, height=200)
+
+                st.subheader("Popular Questions")
+                questions = [
+                    "How is blockchain technology used in AI?",
+                    "What are the benefits of Web3 SaaS?",
+                    "How does AI impact blockchain development?",
+                    "What are the key features of decentralized applications?",
+                    "How can blockchain improve AI data security?"
+                ]
+                selected_question = st.selectbox("Select a question:", questions)
+                if st.button("Ask Selected Question"):
+                    with st.spinner("Generating response..."):
+                        response = chat(f"Based on the Wikipedia context: {st.session_state.wiki_context}\n\nQuestion: {selected_question}")
+                    st.write("Answer:")
+                    st.write(response)
+
         # Main content area
         if selected == "Chat":
             st.subheader("💬 Chat")
             st.markdown("<small>Welcome to your AI assistant! How can I help you today?</small>", unsafe_allow_html=True)
+
+            if st.session_state.chat_mode == "pdf":
+                st.info("You are in PDF chat mode. Your questions will be answered based on the uploaded PDF content.")
 
             for idx, message in enumerate(st.session_state.conversation):
                 with st.chat_message(message["role"]):
@@ -774,11 +726,19 @@ if __name__ == "__main__":
                             pyperclip.copy(conversation_text)
                             st.success("Entire conversation copied to clipboard!", icon="✅")
 
-        # User input
-        user_input = st.chat_input("Ask me anything or share your thoughts...", key="user_input")
+            # User input
+            user_input = st.chat_input("Ask me anything or share your thoughts...", key="user_input")
 
-        if user_input:
-            chat(user_input)
+            if user_input:
+                if st.session_state.chat_mode == "pdf" and st.session_state.pdf_chatbot:
+                    with st.spinner("Processing your query..."):
+                        response = st.session_state.pdf_chatbot.chat(user_input)
+                    st.session_state.conversation.append({"role": "user", "content": user_input})
+                    st.session_state.conversation.append({"role": "assistant", "content": response})
+                    save_chat_state()
+                    st.rerun()
+                else:
+                    chat(user_input)
 
         else:
             with st.expander("🛠️ AI Tools", expanded=True):
