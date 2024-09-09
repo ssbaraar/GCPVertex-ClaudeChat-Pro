@@ -11,7 +11,7 @@ from auth.user_management import login_user, logout_user
 from chat.chat_logic import chat, load_chat_state, save_chat_state, save_conversation
 from chat.message_handling import display_conversation_history
 from utils.helpers import parse_document
-from tools import summarization, content_generation, data_extraction, qa, translation, text_analysis, code_assistant
+from tools import summarization, content_generation, data_extraction, qa, translation, text_analysis, code_assistant, web_scraper, xml_scraper
 import atexit
 
 # Initialize session state variables
@@ -74,7 +74,8 @@ def main():
                 options=[
                     "Chat", "Text Summarization", "Content Generation",
                     "Data Extraction", "Q&A", "Translation",
-                    "Text Analysis", "Code Assistant"
+                    "Text Analysis", "Code Assistant", "Web Scraper",
+                    "XML Blog Scraper"  # Add this line
                 ],
                 format_func=lambda x: {
                     "Chat": "💬 Chat",
@@ -84,7 +85,9 @@ def main():
                     "Q&A": "❓ Q&A",
                     "Translation": "🌐 Translation",
                     "Text Analysis": "📊 Text Analysis",
-                    "Code Assistant": "💻 Code Assistant"
+                    "Code Assistant": "💻 Code Assistant",
+                    "Web Scraper": "🕷️ Web Scraper",
+                    "XML Blog Scraper": "📄 XML Blog Scraper"
                 }[x]
             )
 
@@ -166,6 +169,10 @@ def main():
                     text_analysis.render()
                 elif selected == "Code Assistant":
                     code_assistant.render()
+                elif selected == "Web Scraper":
+                    web_scraper.render()
+                elif selected == "XML Blog Scraper":
+                    xml_scraper.render()
 
             # Display conversation history for non-Chat tools
             st.subheader("Conversation History")
